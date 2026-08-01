@@ -19,7 +19,6 @@ const C = {
 const USAGE = `
 ${C.bold('downloads-sorter')} — ファイル名ルールでダウンロードフォルダを自動振り分け
 
-  ${C.cyan('watch')}            フォルダを監視して、新しく来たファイルを振り分ける
   ${C.cyan('once')}             今フォルダにある既存ファイルを一括で振り分ける
   ${C.cyan('test')} <ファイル名>  そのファイル名がどのルールに当たるか確認する（ファイルは不要）
   ${C.cyan('undo')} [件数]       直近の移動を取り消す（既定 1 件）
@@ -68,29 +67,6 @@ function attach(sorter) {
   sorter.on('skipped', (r) => console.log(`${ts()} ${C.dim(`[skip] ${path.basename(r.src)} — ${r.reason}`)}`));
   sorter.on('log', (m) => console.log(`${ts()} ${C.dim(m)}`));
   sorter.on('failed', (e) => console.error(`${ts()} ${C.red('[ERR]')} ${e.file ?? ''} ${e.message}`));
-}
-
-async function cmdWatch() {
-  const cfg = await loadConfig();
-  const sorter = new Sorter(cfg, { dryRun: flags['dry-run'], journalPath });
-  attach(sorter);
-  sorter.on('ready', (i) =>
-    console.log(
-      `${C.bold('監視中')} ${i.watchDir}${i.dryRun ? C.yellow('  (dry-run: 移動しません)') : ''}\n` +
-        C.dim(`ルール ${cfg.rules.length} 件 / Ctrl+C で終了\n`),
-    ),
-  );
-  await sorter.start();
-
-  const shutdown = async () => {
-    console.log(`\n${C.dim('終了中…')}`);
-    await sorter.stop();
-    const s = sorter.stats;
-    console.log(C.dim(`移動 ${s.moved} / スキップ ${s.skipped} / エラー ${s.errors}`));
-    process.exit(0);
-  };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
 }
 
 async function cmdOnce() {
@@ -148,7 +124,7 @@ async function cmdInit() {
   console.log(created ? C.green(`作成しました: ${file}`) : `既にあります: ${file}`);
 }
 
-const commands = { watch: cmdWatch, once: cmdOnce, test: cmdTest, undo: cmdUndo, log: cmdLog, init: cmdInit };
+const commands = { once: cmdOnce, test: cmdTest, undo: cmdUndo, log: cmdLog, init: cmdInit };
 
 if (flags.help || !cmd || !commands[cmd]) {
   console.log(USAGE);
