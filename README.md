@@ -195,4 +195,4 @@ git checkout <正しいブランチ名>
 
 ## ライセンス
 
-MIT License（`package.json` の `license` フィールドを参照）
+MIT License. 詳細は [`LICENSE`](LICENSE) を参照してください。
