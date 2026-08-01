@@ -27,6 +27,7 @@ const cleanExt = (p) => path.extname(p).replace(/^\./, '').toLowerCase();
 function tidy(text) {
   return String(text || '')
     .replace(/\r\n?/g, '\n')
+    // eslint-disable-next-line no-irregular-whitespace -- 全角スペース(U+3000)を意図的にマッチ対象にしている
     .replace(/[ \t　]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

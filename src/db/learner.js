@@ -48,6 +48,7 @@ const ROMAN_MAP = {
   i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9,
   x: 10, xi: 11, xii: 12,
 };
+// eslint-disable-next-line no-control-regex, no-irregular-whitespace -- \x00-\x7Fは非ASCII判定用の範囲指定、全角スペース(U+3000)を意図的にマッチ対象にしている
 const ROMAN_RE = /([^\x00-\x7F])[ 　]?(viii|vii|vi|iv|ix|iii|ii|xii|xi|x|v|i)(?![a-z0-9])/g;
 
 export function romanNumeralsToDigits(s) {
