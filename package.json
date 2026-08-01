@@ -4,7 +4,11 @@
   "private": true,
   "description": "ファイルオート振り分け（仮） — ダウンロードフォルダ自動振り分けデスクトップアプリ",
   "scripts": {
+    "test:db": "node src/db/test-db.js",
     "lint": "eslint . --no-error-on-unmatched-pattern"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",

@@ -1,4 +1,25 @@
+# 依存パッケージ
 node_modules/
+
+# SQLite の実データ（コミットしない）
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Electron / ビルド成果物
 dist/
 build/
+out/
+release/
+
+# ログ・一時ファイル
 *.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# エディタ
+.vscode/
+.idea/
