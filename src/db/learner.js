@@ -42,7 +42,7 @@ function tokenize(text, opts = {}) {
 
   let s = String(text);
   if (isFileName) s = s.replace(/\.[a-z0-9]{1,6}$/i, ''); // 拡張子を落とす
-  s = s.replace(/[_\-–—.,/\\()\[\]{}<>:;"'|!?＿－．，、。（）「」【】〈〉]/g, ' ');
+  s = s.replace(/[_\-–—.,/\\()[\]{}<>:;"'|!?＿－．，、。（）「」【】〈〉]/g, ' ');
   s = s.toLowerCase();
 
   const terms = new Set();
