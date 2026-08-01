@@ -1,31 +1,36 @@
-'use strict';
 /**
- * db.js — ダウンロード自動振り分けアプリ データベース層
+ * db.js — ダウンロード自動振り分けアプリ データベース層（ESM）
  * =============================================================================
  * 使い方（Electron メインプロセス側）:
  *
- *   const db = require('./db');
- *   db.init();                                  // 起動時に1回
- *   const sid = db.subjects.create({ name:'線形代数', folderPath:'D:\\大学\\線形代数' });
- *   db.rules.create({ subjectId: sid, name:'線形代数PDF',
- *     conditions:[ {target:'filename', operator:'contains', value:'線形代数'} ] });
+ *   import * as db from './back/db.js';
+ *   db.init();                                   // 起動時に1回
  *
- *   const r = db.classify({ fileName:'線形代数_第3回.pdf', ext:'pdf', text:null });
- *   // → { matched:true, subjectId:1, folderPath:'...', matchedBy:'filename', ... }
+ *   // 科目フォルダのルートを指定すれば、フォルダ名から科目を一括登録できる
+ *   db.subjects.importFromFolder('D:\\大学\\2026前期');
  *
- *   db.close();                                 // 終了時
+ *   // 略称の対応表（これが無いと prg1 → 知能情報プログラミング１ は当たらない）
+ *   db.aliases.add(subjectId, 'prg1');
+ *
+ *   const r = db.classify({ fileName:'prg1_202604_w11p_演習.pdf', ext:'pdf', text });
+ *   // → { matched:true, source:'alias', subjectId, folderPath, confidence, ... }
+ *
+ *   db.close();                                  // 終了時
  *
  * 依存: better-sqlite3 のみ（同期API。Electronのメインプロセスで使う想定）
  * =============================================================================
  */
 
-const path = require('path');
-const fs = require('fs');
-const Database = require('better-sqlite3');
+import path from 'node:path';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import Database from 'better-sqlite3';
 
-const { MIGRATIONS } = require('./migrations');
-const matcher = require('./matcher');
-const learner = require('./learner');
+import { MIGRATIONS } from './migrations.js';
+import * as matcher from './matcher.js';
+import * as learner from './learner.js';
+
+export { matcher, learner };
 
 /** @type {import('better-sqlite3').Database|null} */
 let db = null;
@@ -38,24 +43,31 @@ const toInt = (v) => (v ? 1 : 0);
 const nz = (v) => (v === undefined ? null : v);
 const nowSql = "datetime('now','localtime')";
 
+/** 先頭トークン（科目略称）は他の語より強い証拠なので重みを増やす */
+const HEAD_BOOST = 3;
+
 function assertReady() {
   if (!db) throw new Error('db.init() が呼ばれていません');
 }
 
-/** ルールキャッシュ（chokidarから高頻度で呼ばれるため） */
 let _rulesCache = null;
+let _aliasCache = null;
 let _vocabCache = { filename: null, content: null };
-function invalidateRules() { _rulesCache = null; }
-function invalidateVocab() { _vocabCache = { filename: null, content: null }; }
+let _stmtUpsertTerm = null;
+let _stmtUpsertSubjectStat = null;
+
+const invalidateRules = () => { _rulesCache = null; };
+const invalidateAliases = () => { _aliasCache = null; };
+const invalidateVocab = () => { _vocabCache = { filename: null, content: null }; };
 
 function defaultDbPath() {
   try {
-    // Electron 環境なら userData 配下へ
+    const require = createRequire(import.meta.url);
     const { app } = require('electron');
     if (app && typeof app.getPath === 'function') {
       return path.join(app.getPath('userData'), 'filesorter.db');
     }
-  } catch (_) { /* Electron外（テスト等） */ }
+  } catch { /* Electron外（テスト等） */ }
   return path.join(process.cwd(), 'filesorter.db');
 }
 
@@ -63,65 +75,53 @@ function defaultDbPath() {
  * 初期化 / マイグレーション
  * ==========================================================================*/
 
-/**
- * @param {{dbPath?:string, verbose?:boolean, readonly?:boolean}} options
- */
-function init(options = {}) {
+export function init(options = {}) {
   if (db) return db;
   const dbPath = options.dbPath || defaultDbPath();
-  if (dbPath !== ':memory:') {
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  }
+  if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath, {
     verbose: options.verbose ? console.log : undefined,
     readonly: !!options.readonly,
   });
 
-  db.pragma('journal_mode = WAL');   // 書き込み中も読める
-  db.pragma('foreign_keys = ON');    // ON DELETE CASCADE を効かせる
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
   db.pragma('synchronous = NORMAL');
   db.pragma('busy_timeout = 5000');
 
   migrate();
-  invalidateRules();
-  invalidateVocab();
+  invalidateRules(); invalidateAliases(); invalidateVocab();
   return db;
 }
 
-function migrate() {
+export function migrate() {
   const current = db.pragma('user_version', { simple: true });
   for (const m of MIGRATIONS) {
     if (m.version <= current) continue;
-    const run = db.transaction(() => {
+    db.transaction(() => {
       db.exec(m.sql);
       db.pragma(`user_version = ${m.version}`);
-    });
-    run();
+    })();
   }
 }
 
-function close() {
+export function close() {
   if (db) { db.close(); db = null; }
   _stmtUpsertTerm = null;
   _stmtUpsertSubjectStat = null;
-  invalidateRules();
-  invalidateVocab();
+  invalidateRules(); invalidateAliases(); invalidateVocab();
 }
 
-function getDb() { assertReady(); return db; }
-
-/** バックアップ（設定画面の「バックアップ」ボタン用） */
-function backup(destPath) {
-  assertReady();
-  return db.backup(destPath);
-}
+export function getDb() { assertReady(); return db; }
+export function backup(destPath) { assertReady(); return db.backup(destPath); }
+export function vacuum() { assertReady(); db.exec('VACUUM'); return true; }
 
 /* ============================================================================
  * settings — 設定
  * ==========================================================================*/
 
-const settings = {
+export const settings = {
   get(key, defaultValue = null) {
     assertReady();
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -152,8 +152,7 @@ const settings = {
   },
   setMany(obj) {
     assertReady();
-    const tx = db.transaction((o) => { for (const [k, v] of Object.entries(o)) settings.set(k, v); });
-    tx(obj);
+    db.transaction((o) => { for (const [k, v] of Object.entries(o)) settings.set(k, v); })(obj);
     return true;
   },
 };
@@ -162,12 +161,19 @@ const settings = {
  * subjects — 科目（振り分け先フォルダ）
  * ==========================================================================*/
 
-const subjects = {
+/** フォルダ名を科目名に分割する。「ICT入門,データサイエンス入門」→ 2科目 */
+export function splitFolderName(name) {
+  return String(name)
+    .split(/[,、，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export const subjects = {
   list({ includeDisabled = false } = {}) {
     assertReady();
-    const sql = `SELECT * FROM subjects ${includeDisabled ? '' : 'WHERE enabled = 1'}
-                 ORDER BY sort_order, id`;
-    return db.prepare(sql).all();
+    return db.prepare(`SELECT * FROM subjects ${includeDisabled ? '' : 'WHERE enabled = 1'}
+                       ORDER BY sort_order, id`).all();
   },
   get(id) {
     assertReady();
@@ -179,21 +185,31 @@ const subjects = {
   },
   getByFolder(folderPath) {
     assertReady();
-    return db.prepare('SELECT * FROM subjects WHERE folder_path = ?').get(folderPath) || null;
+    return db.prepare('SELECT * FROM subjects WHERE folder_path = ?').all(folderPath);
   },
-  /** @returns {number} 作成された科目ID */
+
+  /**
+   * @returns {number} 作成された科目ID
+   * 科目名そのものは自動的に別名として登録される（「ICT入門」はこれで当たる）
+   */
   create({ name, folderPath, color = null, icon = null, sortOrder = null, enabled = true }) {
     assertReady();
     if (!name) throw new Error('name は必須です');
     if (!folderPath) throw new Error('folderPath は必須です');
-    const order = sortOrder ?? (db.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM subjects').get().n);
-    const info = db.prepare(
-      `INSERT INTO subjects(name, folder_path, color, icon, sort_order, enabled)
-       VALUES(?, ?, ?, ?, ?, ?)`
-    ).run(name, folderPath, nz(color), nz(icon), order, toInt(enabled));
-    invalidateRules();
-    return info.lastInsertRowid;
+    const order = sortOrder ?? db.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM subjects').get().n;
+    const id = db.transaction(() => {
+      const info = db.prepare(
+        `INSERT INTO subjects(name, folder_path, color, icon, sort_order, enabled)
+         VALUES(?, ?, ?, ?, ?, ?)`
+      ).run(name, folderPath, nz(color), nz(icon), order, toInt(enabled));
+      const sid = info.lastInsertRowid;
+      insertAlias(sid, name, 'folder', 1.0);
+      return sid;
+    })();
+    invalidateRules(); invalidateAliases();
+    return id;
   },
+
   update(id, patch = {}) {
     assertReady();
     const map = {
@@ -210,26 +226,174 @@ const subjects = {
     sets.push(`updated_at = ${nowSql}`);
     vals.push(id);
     db.prepare(`UPDATE subjects SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-    invalidateRules();
+    invalidateRules(); invalidateAliases();
     return true;
   },
-  /** 科目削除。ルール・学習データもCASCADEで消える（履歴は名前が残る） */
+
   remove(id) {
     assertReady();
-    const tx = db.transaction((sid) => {
-      db.prepare('UPDATE history SET subject_name = COALESCE(subject_name, (SELECT name FROM subjects WHERE id = ?)) WHERE subject_id = ?').run(sid, sid);
+    db.transaction((sid) => {
+      db.prepare(`UPDATE history SET subject_name =
+                    COALESCE(subject_name, (SELECT name FROM subjects WHERE id = ?))
+                  WHERE subject_id = ?`).run(sid, sid);
       db.prepare('DELETE FROM subjects WHERE id = ?').run(sid);
-    });
-    tx(id);
-    invalidateRules();
-    invalidateVocab();
+    })(id);
+    invalidateRules(); invalidateAliases(); invalidateVocab();
     return true;
   },
+
   reorder(idsInOrder = []) {
     assertReady();
     const stmt = db.prepare('UPDATE subjects SET sort_order = ? WHERE id = ?');
     db.transaction((ids) => ids.forEach((id, i) => stmt.run(i + 1, id)))(idsInOrder);
     invalidateRules();
+    return true;
+  },
+
+  /**
+   * 指定フォルダ直下のサブフォルダを科目として一括登録する。
+   * 「ICT入門,データサイエンス入門」のようなカンマ区切りは複数科目に分割し、
+   * 同じフォルダを指すようにする。
+   *
+   * @param {string} rootPath 例: 'D:\\大学\\2026前期'
+   * @returns {{created:Array, skipped:Array, root:string}}
+   */
+  importFromFolder(rootPath) {
+    assertReady();
+    if (!rootPath) throw new Error('rootPath は必須です');
+    const entries = fs.readdirSync(rootPath, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'));
+
+    const created = [], skipped = [];
+    db.transaction(() => {
+      for (const e of entries) {
+        const folderPath = path.join(rootPath, e.name);
+        const names = splitFolderName(e.name);
+        for (const name of names) {
+          if (subjects.getByName(name)) { skipped.push({ name, reason: '登録済み' }); continue; }
+          const sid = subjects.create({ name, folderPath });
+          // フォルダ名そのものも別名にする（分割前の「ICT入門,データサイエンス入門」）
+          if (names.length > 1) insertAlias(sid, e.name, 'folder', 0.5);
+          created.push({ id: sid, name, folderPath });
+        }
+      }
+    })();
+    settings.set('subject_root', rootPath);
+    invalidateAliases();
+    return { created, skipped, root: rootPath };
+  },
+};
+
+/* ============================================================================
+ * aliases — 科目の別名・略称
+ * ==========================================================================*/
+
+function insertAlias(subjectId, alias, origin = 'manual', weight = 1.0) {
+  const a = learner.normalizeSubjectKey(alias);
+  if (!a || a.length < 2) return null;
+  const info = db.prepare(
+    `INSERT INTO subject_aliases(subject_id, alias, origin, weight)
+     VALUES(?, ?, ?, ?)
+     ON CONFLICT(subject_id, alias) DO UPDATE SET weight = MAX(weight, excluded.weight)`
+  ).run(subjectId, a, origin, weight);
+  return info.lastInsertRowid;
+}
+
+export const aliases = {
+  add(subjectId, alias, { origin = 'manual', weight = 1.0 } = {}) {
+    assertReady();
+    const id = insertAlias(subjectId, alias, origin, weight);
+    invalidateAliases();
+    return id;
+  },
+  addMany(subjectId, list = [], opts = {}) {
+    assertReady();
+    db.transaction(() => { for (const a of list) insertAlias(subjectId, a, opts.origin ?? 'manual', opts.weight ?? 1.0); })();
+    invalidateAliases();
+    return true;
+  },
+  list(subjectId = null) {
+    assertReady();
+    const sql = `SELECT a.*, s.name AS subject_name FROM subject_aliases a
+                 JOIN subjects s ON s.id = a.subject_id
+                 ${subjectId != null ? 'WHERE a.subject_id = ?' : ''}
+                 ORDER BY a.subject_id, LENGTH(a.alias) DESC`;
+    return subjectId != null ? db.prepare(sql).all(subjectId) : db.prepare(sql).all();
+  },
+  remove(id) {
+    assertReady();
+    db.prepare('DELETE FROM subject_aliases WHERE id = ?').run(id);
+    invalidateAliases();
+    return true;
+  },
+
+  /** 判定用（キャッシュ付き）。有効な科目の別名のみ */
+  getActive() {
+    assertReady();
+    if (_aliasCache) return _aliasCache;
+    _aliasCache = db.prepare(
+      `SELECT a.id, a.subject_id, a.alias, a.weight, s.name AS subject_name, s.folder_path
+       FROM subject_aliases a JOIN subjects s ON s.id = a.subject_id
+       WHERE s.enabled = 1
+       ORDER BY LENGTH(a.alias) DESC`
+    ).all();
+    return _aliasCache;
+  },
+
+  /**
+   * ファイル名・本文から別名で科目を特定する。
+   *
+   * 実PDFの調査で分かったこと:
+   *   授業スライドは全ページのフッターに科目名が入っている（PowerPointのマスター）。
+   *   一方で他科目の名前も本文に出てくる（「次回よりデータサイエンス入門が始まります」）。
+   *   → 「含まれるか」ではなく「何回出てくるか」で判定しないと誤爆する。
+   *      ICT入門の資料: ICT入門=15回 / データサイエンス入門=3回
+   *
+   * スコア = 別名の長さ × 重み × 係数
+   *   先頭一致 ×3 ／ ファイル名の部分一致 ×2 ／ 本文の出現回数（最大10）
+   *
+   * @returns {{subjectId, subjectName, folderPath, alias, where, score, occurrences}|null}
+   */
+  match({ fileName, text = null }) {
+    assertReady();
+    const rows = aliases.getActive();
+    if (!rows.length) return null;
+
+    const nameKey = learner.normalizeSubjectKey(learner.stripExt(fileName || ''));
+    const textKey = text ? learner.normalizeSubjectKey(String(text).slice(0, 20000)) : '';
+
+    const perSubject = new Map();
+    for (const r of rows) {
+      const a = r.alias;
+      if (!a) continue;
+
+      let score = 0, where = null;
+      if (nameKey && nameKey.startsWith(a)) { score = a.length * r.weight * 3; where = 'filename_head'; }
+      else if (nameKey && nameKey.includes(a)) { score = a.length * r.weight * 2; where = 'filename'; }
+
+      const occ = textKey ? learner.countOccurrences(textKey, a) : 0;
+      if (occ > 0) {
+        const contentScore = a.length * r.weight * Math.min(occ, 10);
+        if (contentScore > score) { score = contentScore; where = 'content'; }
+      }
+      if (!score) continue;
+
+      const cand = {
+        subjectId: r.subject_id, subjectName: r.subject_name, folderPath: r.folder_path,
+        alias: a, where, score, occurrences: occ, aliasId: r.id,
+      };
+      const cur = perSubject.get(r.subject_id);
+      if (!cur || score > cur.score) perSubject.set(r.subject_id, cand);
+    }
+
+    let best = null;
+    for (const c of perSubject.values()) if (!best || c.score > best.score) best = c;
+    return best;
+  },
+
+  recordHit(id) {
+    assertReady();
+    db.prepare('UPDATE subject_aliases SET hit_count = hit_count + 1 WHERE id = ?').run(id);
     return true;
   },
 };
@@ -260,19 +424,12 @@ function insertConditions(ruleId, conditions = []) {
      VALUES(?, ?, ?, ?, ?, ?)`
   );
   conditions.forEach((c, i) => {
-    stmt.run(
-      ruleId,
-      c.target,
-      c.operator || 'contains',
-      String(c.value),
-      toInt(c.caseSensitive ?? c.case_sensitive),
-      c.sortOrder ?? i
-    );
+    stmt.run(ruleId, c.target, c.operator || 'contains', String(c.value),
+      toInt(c.caseSensitive ?? c.case_sensitive), c.sortOrder ?? i);
   });
 }
 
-const rules = {
-  /** conditions 付きで1件取得 */
+export const rules = {
   get(id) {
     assertReady();
     const r = db.prepare('SELECT * FROM v_rules_full WHERE id = ?').get(id);
@@ -284,58 +441,40 @@ const rules = {
     if (subjectId != null) { where.push('subject_id = ?'); vals.push(subjectId); }
     if (!includeDisabled) where.push('enabled = 1');
     if (origin) { where.push('origin = ?'); vals.push(origin); }
-    const sql = `SELECT * FROM v_rules_full
-                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-                 ORDER BY priority DESC, id`;
-    return attachConditions(db.prepare(sql).all(...vals));
+    return attachConditions(db.prepare(
+      `SELECT * FROM v_rules_full ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY priority DESC, id`).all(...vals));
   },
-  /** 判定に使う有効ルール（キャッシュ有り） */
   getActive() {
     assertReady();
     if (_rulesCache) return _rulesCache;
-    _rulesCache = attachConditions(
-      db.prepare(`SELECT * FROM v_rules_full WHERE enabled = 1 AND subject_enabled = 1
-                  ORDER BY priority DESC, id`).all()
-    );
+    _rulesCache = attachConditions(db.prepare(
+      `SELECT * FROM v_rules_full WHERE enabled = 1 AND subject_enabled = 1
+       ORDER BY priority DESC, id`).all());
     return _rulesCache;
   },
-  /**
-   * @param {{subjectId:number, name:string, conditions:Array,
-   *          matchMode?:'all'|'any', priority?:number, enabled?:boolean,
-   *          subfolder?:string, description?:string,
-   *          origin?:'user'|'learned'|'builtin', confidence?:number}} p
-   * @returns {number} ルールID
-   */
   create(p) {
     assertReady();
-    if (!p || !p.subjectId) throw new Error('subjectId は必須です');
+    if (!p?.subjectId) throw new Error('subjectId は必須です');
     if (!Array.isArray(p.conditions) || p.conditions.length === 0) {
       throw new Error('conditions を1件以上指定してください');
     }
-    const tx = db.transaction((params) => {
+    const id = db.transaction((params) => {
       const info = db.prepare(
         `INSERT INTO rules(subject_id, name, description, match_mode, priority, enabled,
                            subfolder, origin, confidence)
          VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        params.subjectId,
-        params.name || '無題のルール',
-        nz(params.description),
-        params.matchMode || 'all',
-        params.priority ?? 100,
-        toInt(params.enabled ?? true),
-        nz(params.subfolder),
-        params.origin || 'user',
-        params.confidence ?? 1.0
+        params.subjectId, params.name || '無題のルール', nz(params.description),
+        params.matchMode || 'all', params.priority ?? 100, toInt(params.enabled ?? true),
+        nz(params.subfolder), params.origin || 'user', params.confidence ?? 1.0
       );
       insertConditions(info.lastInsertRowid, params.conditions);
       return info.lastInsertRowid;
-    });
-    const id = tx(p);
+    })(p);
     invalidateRules();
     return id;
   },
-  /** conditions を渡すと条件は総入れ替えされる */
   update(id, patch = {}) {
     assertReady();
     const map = {
@@ -343,7 +482,7 @@ const rules = {
       matchMode: 'match_mode', priority: 'priority', enabled: 'enabled',
       subfolder: 'subfolder', origin: 'origin', confidence: 'confidence',
     };
-    const tx = db.transaction(() => {
+    db.transaction(() => {
       const sets = [], vals = [];
       for (const [k, col] of Object.entries(map)) {
         if (patch[k] === undefined) continue;
@@ -359,8 +498,7 @@ const rules = {
         db.prepare('DELETE FROM rule_conditions WHERE rule_id = ?').run(id);
         insertConditions(id, patch.conditions);
       }
-    });
-    tx();
+    })();
     invalidateRules();
     return true;
   },
@@ -371,7 +509,6 @@ const rules = {
     invalidateRules();
     return true;
   },
-  /** ヒットしたとき呼ぶ（統計用） */
   recordHit(id) {
     assertReady();
     db.prepare(`UPDATE rules SET hit_count = hit_count + 1, last_matched_at = ${nowSql} WHERE id = ?`).run(id);
@@ -384,10 +521,10 @@ const rules = {
 };
 
 /* ============================================================================
- * content_cache — 本文抽出キャッシュ
+ * content_cache / queue / history
  * ==========================================================================*/
 
-const content = {
+export const content = {
   get(fileHash) {
     assertReady();
     if (!fileHash) return null;
@@ -412,18 +549,10 @@ const content = {
     return db.prepare(`DELETE FROM content_cache WHERE extracted_at < datetime('now','localtime', ?)`)
       .run(`-${Number(days)} days`).changes;
   },
-  count() {
-    assertReady();
-    return db.prepare('SELECT COUNT(*) AS n FROM content_cache').get().n;
-  },
+  count() { assertReady(); return db.prepare('SELECT COUNT(*) AS n FROM content_cache').get().n; },
 };
 
-/* ============================================================================
- * queue — 監視で検知した未処理ファイル
- * ==========================================================================*/
-
-const queue = {
-  /** 同じパスが来たら更新（chokidar の重複検知対策） */
+export const queue = {
   add({ sourcePath, fileName = null, ext = null, sizeBytes = null, fileHash = null, status = 'pending' }) {
     assertReady();
     const name = fileName || path.basename(sourcePath);
@@ -433,8 +562,7 @@ const queue = {
        VALUES(?, ?, ?, ?, ?, ?)
        ON CONFLICT(source_path) DO UPDATE SET
          file_name = excluded.file_name, size_bytes = excluded.size_bytes,
-         file_hash = excluded.file_hash, status = excluded.status,
-         updated_at = ${nowSql}`
+         file_hash = excluded.file_hash, status = excluded.status, updated_at = ${nowSql}`
     ).run(sourcePath, name, e, nz(sizeBytes), nz(fileHash), status);
     return db.prepare('SELECT id FROM queue WHERE source_path = ?').get(sourcePath).id;
   },
@@ -446,24 +574,18 @@ const queue = {
                  ORDER BY q.detected_at, q.id LIMIT ?`;
     return status ? db.prepare(sql).all(status, limit) : db.prepare(sql).all(limit);
   },
-  get(id) {
-    assertReady();
-    return db.prepare('SELECT * FROM queue WHERE id = ?').get(id) || null;
-  },
+  get(id) { assertReady(); return db.prepare('SELECT * FROM queue WHERE id = ?').get(id) || null; },
   setStatus(id, status, patch = {}) {
     assertReady();
     db.prepare(
       `UPDATE queue SET status = ?, matched_rule_id = COALESCE(?, matched_rule_id),
         matched_subject_id = COALESCE(?, matched_subject_id),
-        suggested_json = COALESCE(?, suggested_json),
-        score = COALESCE(?, score),
+        suggested_json = COALESCE(?, suggested_json), score = COALESCE(?, score),
         error_message = ?, updated_at = ${nowSql}
        WHERE id = ?`
-    ).run(
-      status, nz(patch.ruleId), nz(patch.subjectId),
+    ).run(status, nz(patch.ruleId), nz(patch.subjectId),
       patch.suggested ? JSON.stringify(patch.suggested) : null,
-      nz(patch.score), nz(patch.errorMessage), id
-    );
+      nz(patch.score), nz(patch.errorMessage), id);
     return true;
   },
   remove(id) { assertReady(); db.prepare('DELETE FROM queue WHERE id = ?').run(id); return true; },
@@ -477,17 +599,7 @@ const queue = {
   },
 };
 
-/* ============================================================================
- * history — 移動履歴
- * ==========================================================================*/
-
-const history = {
-  /**
-   * @param {{fileName:string, sourcePath:string, destPath?:string, ext?:string,
-   *          sizeBytes?:number, fileHash?:string, subjectId?:number, ruleId?:number,
-   *          action?:'move'|'copy'|'skip'|'manual', status?:'success'|'failed'|'undone',
-   *          matchedBy?:string, score?:number, errorMessage?:string}} p
-   */
+export const history = {
   add(p) {
     assertReady();
     const subject = p.subjectId ? subjects.get(p.subjectId) : null;
@@ -514,51 +626,44 @@ const history = {
     if (status) { where.push('status = ?'); vals.push(status); }
     if (keyword) { where.push('file_name LIKE ?'); vals.push(`%${keyword}%`); }
     if (days) { where.push(`moved_at >= datetime('now','localtime', ?)`); vals.push(`-${Number(days)} days`); }
-    const sql = `SELECT * FROM v_history_full
-                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-                 ORDER BY moved_at DESC, id DESC LIMIT ? OFFSET ?`;
-    return db.prepare(sql).all(...vals, limit, offset);
+    return db.prepare(
+      `SELECT * FROM v_history_full ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY moved_at DESC, id DESC LIMIT ? OFFSET ?`).all(...vals, limit, offset);
   },
-  get(id) {
-    assertReady();
-    return db.prepare('SELECT * FROM v_history_full WHERE id = ?').get(id) || null;
-  },
-  /** 「元に戻す」実行後に呼ぶ */
+  get(id) { assertReady(); return db.prepare('SELECT * FROM v_history_full WHERE id = ?').get(id) || null; },
   markUndone(id) {
     assertReady();
     db.prepare("UPDATE history SET status = 'undone' WHERE id = ?").run(id);
     return true;
   },
-  /** 同じ内容のファイルを過去に処理していないか */
   findByHash(fileHash) {
     assertReady();
     if (!fileHash) return null;
     return db.prepare(`SELECT * FROM history WHERE file_hash = ? AND status = 'success'
                        ORDER BY moved_at DESC LIMIT 1`).get(fileHash) || null;
   },
-  /** ダッシュボード用の集計 */
   stats(days = 30) {
     assertReady();
     const since = `-${Number(days)} days`;
-    const total = db.prepare(`SELECT COUNT(*) AS n FROM history WHERE moved_at >= datetime('now','localtime', ?)`).get(since).n;
-    const success = db.prepare(`SELECT COUNT(*) AS n FROM history WHERE status='success' AND moved_at >= datetime('now','localtime', ?)`).get(since).n;
-    const failed = db.prepare(`SELECT COUNT(*) AS n FROM history WHERE status='failed' AND moved_at >= datetime('now','localtime', ?)`).get(since).n;
-    const bySubject = db.prepare(
-      `SELECT COALESCE(s.name, h.subject_name, '未分類') AS subject, COUNT(*) AS n
-       FROM history h LEFT JOIN subjects s ON s.id = h.subject_id
-       WHERE h.moved_at >= datetime('now','localtime', ?) AND h.status = 'success'
-       GROUP BY subject ORDER BY n DESC`
-    ).all(since);
-    const byDay = db.prepare(
-      `SELECT date(moved_at) AS day, COUNT(*) AS n FROM history
-       WHERE moved_at >= datetime('now','localtime', ?) GROUP BY day ORDER BY day`
-    ).all(since);
-    const byMatchedBy = db.prepare(
-      `SELECT COALESCE(matched_by,'unknown') AS matched_by, COUNT(*) AS n FROM history
-       WHERE moved_at >= datetime('now','localtime', ?) AND status='success'
-       GROUP BY matched_by ORDER BY n DESC`
-    ).all(since);
-    return { days, total, success, failed, bySubject, byDay, byMatchedBy };
+    const one = (sql) => db.prepare(sql).get(since).n;
+    return {
+      days,
+      total: one(`SELECT COUNT(*) AS n FROM history WHERE moved_at >= datetime('now','localtime', ?)`),
+      success: one(`SELECT COUNT(*) AS n FROM history WHERE status='success' AND moved_at >= datetime('now','localtime', ?)`),
+      failed: one(`SELECT COUNT(*) AS n FROM history WHERE status='failed' AND moved_at >= datetime('now','localtime', ?)`),
+      bySubject: db.prepare(
+        `SELECT COALESCE(s.name, h.subject_name, '未分類') AS subject, COUNT(*) AS n
+         FROM history h LEFT JOIN subjects s ON s.id = h.subject_id
+         WHERE h.moved_at >= datetime('now','localtime', ?) AND h.status = 'success'
+         GROUP BY subject ORDER BY n DESC`).all(since),
+      byDay: db.prepare(
+        `SELECT date(moved_at) AS day, COUNT(*) AS n FROM history
+         WHERE moved_at >= datetime('now','localtime', ?) GROUP BY day ORDER BY day`).all(since),
+      byMatchedBy: db.prepare(
+        `SELECT COALESCE(matched_by,'unknown') AS matched_by, COUNT(*) AS n FROM history
+         WHERE moved_at >= datetime('now','localtime', ?) AND status='success'
+         GROUP BY matched_by ORDER BY n DESC`).all(since),
+    };
   },
   purgeOlderThan(days) {
     assertReady();
@@ -587,8 +692,7 @@ function fetchTermCounts(target, tokens) {
     const part = tokens.slice(i, i + CHUNK);
     const rows = db.prepare(
       `SELECT term, subject_id, count FROM term_stats
-       WHERE target = ? AND term IN (${part.map(() => '?').join(',')})`
-    ).all(target, ...part);
+       WHERE target = ? AND term IN (${part.map(() => '?').join(',')})`).all(target, ...part);
     for (const r of rows) {
       if (!map.has(r.term)) map.set(r.term, new Map());
       map.get(r.term).set(r.subject_id, r.count);
@@ -599,17 +703,14 @@ function fetchTermCounts(target, tokens) {
 
 function fetchSubjectTotals(target) {
   const map = new Map();
-  const rows = db.prepare(
+  for (const r of db.prepare(
     `SELECT ss.subject_id, ss.sample_count, ss.term_total
      FROM subject_stats ss JOIN subjects s ON s.id = ss.subject_id
-     WHERE ss.target = ? AND s.enabled = 1`
-  ).all(target);
-  for (const r of rows) map.set(r.subject_id, { sampleCount: r.sample_count, termTotal: r.term_total });
+     WHERE ss.target = ? AND s.enabled = 1`).all(target)) {
+    map.set(r.subject_id, { sampleCount: r.sample_count, termTotal: r.term_total });
+  }
   return map;
 }
-
-let _stmtUpsertTerm = null;
-let _stmtUpsertSubjectStat = null;
 
 function upsertTermStmt() {
   if (!_stmtUpsertTerm) {
@@ -617,8 +718,7 @@ function upsertTermStmt() {
       `INSERT INTO term_stats(term, target, subject_id, count, updated_at)
        VALUES(?, ?, ?, ?, ${nowSql})
        ON CONFLICT(term, target, subject_id)
-       DO UPDATE SET count = count + excluded.count, updated_at = ${nowSql}`
-    );
+       DO UPDATE SET count = count + excluded.count, updated_at = ${nowSql}`);
   }
   return _stmtUpsertTerm;
 }
@@ -629,8 +729,7 @@ function upsertSubjectStatStmt() {
        VALUES(?, ?, ?, ?)
        ON CONFLICT(subject_id, target)
        DO UPDATE SET sample_count = sample_count + excluded.sample_count,
-                     term_total   = term_total   + excluded.term_total`
-    );
+                     term_total   = term_total   + excluded.term_total`);
   }
   return _stmtUpsertSubjectStat;
 }
@@ -639,115 +738,109 @@ function upsertSubjectStatStmt() {
 function applySample({ subjectId, fileName, text, weight = 1.0, sign = 1 }) {
   const upTerm = upsertTermStmt();
   const upStat = upsertSubjectStatStmt();
-  const targets = [
-    { target: 'filename', tokens: learner.tokenize(fileName, { isFileName: true, maxTerms: 80 }) },
-    { target: 'content', tokens: learner.tokenize(text, { maxTerms: 400 }) },
-  ];
-  for (const { target, tokens } of targets) {
-    if (!tokens.length) continue;
-    for (const t of tokens) upTerm.run(t, target, subjectId, weight * sign);
-    upStat.run(subjectId, target, weight * sign, tokens.length * weight * sign);
+
+  const parsed = learner.parseFileName(fileName || '');
+  const contentTokens = learner.tokenize(text, { maxTerms: 400 });
+
+  // --- ファイル名 ---
+  if (parsed.tokens.length) {
+    let total = 0;
+    for (const t of parsed.tokens) {
+      // 先頭トークン（科目略称）は重みを増やす
+      const w = (t === parsed.head || t === parsed.headStem) ? weight * HEAD_BOOST : weight;
+      upTerm.run(t, 'filename', subjectId, w * sign);
+      total += w;
+    }
+    upStat.run(subjectId, 'filename', weight * sign, total * sign);
+  }
+
+  // --- 本文 ---
+  if (contentTokens.length) {
+    for (const t of contentTokens) upTerm.run(t, 'content', subjectId, weight * sign);
+    upStat.run(subjectId, 'content', weight * sign, contentTokens.length * weight * sign);
   }
 }
 
-const learn = {
+export const learn = {
   /**
    * ユーザーが手でファイルを科目フォルダに入れた（または判定を修正した）ことを学習する。
-   * これが「手動配置による自動学習」の入口。
-   *
-   * @param {{subjectId:number, fileName:string, ext?:string, text?:string,
-   *          fileHash?:string, source?:'manual_move'|'correction'|'confirm'|'import',
-   *          weight?:number}} p
    * @returns {number} learning_samples の ID
    */
   record(p) {
     assertReady();
-    if (!p || !p.subjectId || !p.fileName) throw new Error('subjectId と fileName は必須です');
+    if (!p?.subjectId || !p?.fileName) throw new Error('subjectId と fileName は必須です');
     const source = p.source || 'manual_move';
-    // 誤判定の修正は「強い教師データ」なので重みを大きくする
     const weight = p.weight ?? (source === 'correction' ? 2.0 : 1.0);
     const excerpt = p.text ? String(p.text).slice(0, 2000) : null;
 
-    const tx = db.transaction(() => {
+    const id = db.transaction(() => {
       const info = db.prepare(
         `INSERT INTO learning_samples(subject_id, file_name, ext, text_excerpt, file_hash, source, weight, applied)
          VALUES(?, ?, ?, ?, ?, ?, ?, 1)`
       ).run(p.subjectId, p.fileName, nz(p.ext), excerpt, nz(p.fileHash), source, weight);
       applySample({ subjectId: p.subjectId, fileName: p.fileName, text: excerpt, weight, sign: 1 });
+
+      // 先頭トークンは略称の可能性が高いので、別名候補として自動登録する
+      if (p.learnAlias !== false) {
+        const parsed = learner.parseFileName(p.fileName);
+        if (parsed.head && parsed.head.length >= 2) {
+          insertAlias(p.subjectId, parsed.head, 'learned', 0.8);
+        }
+      }
       return info.lastInsertRowid;
-    });
-    const id = tx();
-    invalidateVocab();
+    })();
+    invalidateVocab(); invalidateAliases();
     return id;
   },
 
   /**
    * 学習結果からファイルの科目を推定する
-   * @param {{fileName:string, ext?:string, text?:string, topK?:number}} p
-   * @returns {Array<{subjectId:number, subjectName:string, folderPath:string,
-   *                  probability:number, score:number}>}
+   * @returns {Array<{subjectId, subjectName, folderPath, probability, score}>}
    */
   suggest({ fileName, text = null, topK = 3, minKnownTerms = 2, minSubjects = 2 } = {}) {
     assertReady();
-    const fnTokens = learner.tokenize(fileName, { isFileName: true, maxTerms: 80 });
+    const parsed = learner.parseFileName(fileName || '');
+    const fnTokens = parsed.tokens;
     const ctTokens = learner.tokenize(text, { maxTerms: 400 });
 
     const fnCounts = fnTokens.length ? fetchTermCounts('filename', fnTokens) : new Map();
     const ctCounts = ctTokens.length ? fetchTermCounts('content', ctTokens) : new Map();
 
-    // ガード1: 学習済みの語がほとんど無いのに推定すると、単に「サンプルが多い科目」
-    //          が常に選ばれてしまう。既知語が少なければ推定しない。
+    // 学習済みの語がほとんど無いのに推定すると、単に「サンプルが多い科目」が選ばれてしまう
     if (fnCounts.size + ctCounts.size < minKnownTerms) return [];
 
     const fnTotals = fetchSubjectTotals('filename');
     const ctTotals = fetchSubjectTotals('content');
-
-    // ガード2: 学習済みの科目が1つしか無い状態では比較にならない（確率が必ず1.0になる）
-    const learnedSubjects = new Set([...fnTotals.keys(), ...ctTotals.keys()]);
-    if (learnedSubjects.size < minSubjects) return [];
+    const learned = new Set([...fnTotals.keys(), ...ctTotals.keys()]);
+    if (learned.size < minSubjects) return [];
 
     const maps = [];
     if (fnCounts.size) {
       maps.push({
-        weight: 1.5, // ファイル名は情報密度が高いので重め
-        map: learner.scoreLog({
-          tokens: fnTokens,
-          termCounts: fnCounts,
-          subjectTotals: fnTotals,
-          vocabSize: vocabSize('filename'),
-        }),
+        weight: 1.5, // ファイル名は情報密度が高い
+        map: learner.scoreLog({ tokens: fnTokens, termCounts: fnCounts, subjectTotals: fnTotals, vocabSize: vocabSize('filename') }),
       });
     }
     if (ctCounts.size) {
       maps.push({
         weight: 1.0,
-        map: learner.scoreLog({
-          tokens: ctTokens,
-          termCounts: ctCounts,
-          subjectTotals: ctTotals,
-          vocabSize: vocabSize('content'),
-        }),
+        map: learner.scoreLog({ tokens: ctTokens, termCounts: ctCounts, subjectTotals: ctTotals, vocabSize: vocabSize('content') }),
       });
     }
     if (!maps.length) return [];
 
-    const ranked = learner.softmaxRank(learner.combineLogScores(maps));
     const out = [];
-    for (const r of ranked.slice(0, topK)) {
+    for (const r of learner.softmaxRank(learner.combineLogScores(maps)).slice(0, topK)) {
       const s = subjects.get(r.subjectId);
       if (!s) continue;
       out.push({
-        subjectId: r.subjectId,
-        subjectName: s.name,
-        folderPath: s.folder_path,
-        probability: r.probability,
-        score: r.score,
+        subjectId: r.subjectId, subjectName: s.name, folderPath: s.folder_path,
+        probability: r.probability, score: r.score,
       });
     }
     return out;
   },
 
-  /** 科目を特徴づける語（ルール自動生成／UI表示用） */
   distinctiveTerms(subjectId, { target = 'filename', minCount = 2, topN = 8, minRatio = 0.6 } = {}) {
     assertReady();
     const rows = db.prepare(
@@ -755,27 +848,15 @@ const learn = {
               (SELECT SUM(t2.count) FROM term_stats t2 WHERE t2.term = t.term AND t2.target = t.target) AS totalCount
        FROM term_stats t
        WHERE t.subject_id = ? AND t.target = ? AND t.count >= ?
-       ORDER BY t.count DESC LIMIT 300`
-    ).all(subjectId, target, minCount);
+       ORDER BY t.count DESC LIMIT 300`).all(subjectId, target, minCount);
     return learner.pickDistinctiveTerms(rows, { minCount, topN, minRatio });
   },
 
-  /**
-   * 学習結果を「見えるルール」に昇格させる（UIで編集・削除できるようになる）
-   * @returns {number|null} 作成したルールID
-   */
   promoteToRule(subjectId, { target = 'filename', topN = 5, minCount = 3, minRatio = 0.7, priority = 50 } = {}) {
     assertReady();
     const terms = learn.distinctiveTerms(subjectId, { target, minCount, topN, minRatio });
     if (!terms.length) return null;
     const s = subjects.get(subjectId);
-    const conditions = terms.map((t) => ({
-      target: target === 'content' ? 'content' : 'filename',
-      operator: 'contains',
-      value: t.term,
-      caseSensitive: false,
-    }));
-    const confidence = terms.reduce((a, t) => a + t.ratio, 0) / terms.length;
     return rules.create({
       subjectId,
       name: `【自動学習】${s ? s.name : ''}`,
@@ -783,20 +864,21 @@ const learn = {
       matchMode: 'any',
       priority,
       origin: 'learned',
-      confidence,
-      conditions,
+      confidence: terms.reduce((a, t) => a + t.ratio, 0) / terms.length,
+      conditions: terms.map((t) => ({
+        target: target === 'content' ? 'content' : 'filename',
+        operator: 'contains', value: t.term, caseSensitive: false,
+      })),
     });
   },
 
-  /** learning_samples から統計を作り直す（科目削除やデータ不整合のリカバリ用） */
   rebuild() {
     assertReady();
-    const tx = db.transaction(() => {
+    const n = db.transaction(() => {
       db.prepare('DELETE FROM term_stats').run();
       db.prepare('DELETE FROM subject_stats').run();
       const samples = db.prepare(
-        `SELECT ls.* FROM learning_samples ls JOIN subjects s ON s.id = ls.subject_id`
-      ).all();
+        `SELECT ls.* FROM learning_samples ls JOIN subjects s ON s.id = ls.subject_id`).all();
       for (const smp of samples) {
         applySample({
           subjectId: smp.subject_id, fileName: smp.file_name,
@@ -805,36 +887,36 @@ const learn = {
       }
       db.prepare('UPDATE learning_samples SET applied = 1').run();
       return samples.length;
-    });
-    const n = tx();
+    })();
     invalidateVocab();
     return n;
   },
 
-  /** ある科目の学習をリセット */
   forget(subjectId) {
     assertReady();
-    const tx = db.transaction(() => {
+    db.transaction(() => {
       db.prepare('DELETE FROM learning_samples WHERE subject_id = ?').run(subjectId);
       db.prepare('DELETE FROM term_stats WHERE subject_id = ?').run(subjectId);
       db.prepare('DELETE FROM subject_stats WHERE subject_id = ?').run(subjectId);
-    });
-    tx();
-    invalidateVocab();
+      db.prepare("DELETE FROM subject_aliases WHERE subject_id = ? AND origin = 'learned'").run(subjectId);
+    })();
+    invalidateVocab(); invalidateAliases();
     return true;
   },
 
-  /** 学習状況（設定画面に出す用） */
   stats() {
     assertReady();
-    const perSubject = db.prepare(
-      `SELECT s.id AS subject_id, s.name,
-              (SELECT COUNT(*) FROM learning_samples ls WHERE ls.subject_id = s.id) AS samples,
-              (SELECT COUNT(*) FROM term_stats t WHERE t.subject_id = s.id) AS terms
-       FROM subjects s ORDER BY s.sort_order, s.id`
-    ).all();
-    const total = db.prepare('SELECT COUNT(*) AS n FROM learning_samples').get().n;
-    return { totalSamples: total, vocabFilename: vocabSize('filename'), vocabContent: vocabSize('content'), perSubject };
+    return {
+      totalSamples: db.prepare('SELECT COUNT(*) AS n FROM learning_samples').get().n,
+      vocabFilename: vocabSize('filename'),
+      vocabContent: vocabSize('content'),
+      perSubject: db.prepare(
+        `SELECT s.id AS subject_id, s.name,
+                (SELECT COUNT(*) FROM learning_samples ls WHERE ls.subject_id = s.id) AS samples,
+                (SELECT COUNT(*) FROM term_stats t WHERE t.subject_id = s.id) AS terms,
+                (SELECT COUNT(*) FROM subject_aliases a WHERE a.subject_id = s.id) AS aliases
+         FROM subjects s ORDER BY s.sort_order, s.id`).all(),
+    };
   },
 
   samples({ subjectId = null, limit = 100 } = {}) {
@@ -848,64 +930,71 @@ const learn = {
 };
 
 /* ============================================================================
- * classify — ルール判定 →（当たらなければ）学習による推定
+ * classify — ルール → 別名 → 学習 の3段判定
  * ==========================================================================*/
+
+const EMPTY_RESULT = {
+  matched: false, source: null, subjectId: null, subjectName: null,
+  folderPath: null, subfolder: null, ruleId: null, aliasId: null,
+  matchedBy: null, confidence: 0, week: null, date: null, suggestions: [],
+};
 
 /**
  * ファイル1件の振り分け先を決める。振り分け処理担当はこれを呼べばよい。
  *
  * @param {{fileName:string, ext?:string, sizeBytes?:number, text?:string}} file
- * @param {{useLearning?:boolean, minConfidence?:number}} [opts]
- * @returns {{
- *   matched: boolean,
- *   source: 'rule'|'learning'|null,
- *   subjectId: number|null, subjectName: string|null, folderPath: string|null,
- *   subfolder: string|null, ruleId: number|null, matchedBy: string|null,
- *   confidence: number, suggestions: Array
- * }}
+ * @param {{useAliases?:boolean, useLearning?:boolean, minConfidence?:number}} [opts]
  */
-function classify(file, opts = {}) {
+export function classify(file, opts = {}) {
   assertReady();
+  const useAliases = opts.useAliases ?? true;
   const useLearning = opts.useLearning ?? settings.getBool('learning_enabled', true);
   const minConfidence = opts.minConfidence ?? settings.getNumber('learning_min_confidence', 0.6);
 
-  const empty = {
-    matched: false, source: null, subjectId: null, subjectName: null,
-    folderPath: null, subfolder: null, ruleId: null, matchedBy: null,
-    confidence: 0, suggestions: [],
-  };
+  const parsed = learner.parseFileName(file.fileName || '');
+  const base = { ...EMPTY_RESULT, week: parsed.week, date: parsed.date };
 
-  // 1) 明示的なルール（決定的・優先）
+  // 1) 明示的なルール（決定的・最優先）
   const r = matcher.classify(rules.getActive(), file);
   if (r.matched) {
     const s = subjects.get(r.subjectId);
     return {
-      matched: true, source: 'rule',
+      ...base, matched: true, source: 'rule',
       subjectId: r.subjectId, subjectName: s ? s.name : null,
-      folderPath: s ? s.folder_path : null,
-      subfolder: r.rule.subfolder || null,
-      ruleId: r.rule.id, matchedBy: r.matchedBy,
-      confidence: r.rule.confidence ?? 1.0,
-      suggestions: [],
+      folderPath: s ? s.folder_path : null, subfolder: r.rule.subfolder || null,
+      ruleId: r.rule.id, matchedBy: r.matchedBy, confidence: r.rule.confidence ?? 1.0,
     };
   }
 
-  // 2) 手動配置の学習による推定
-  if (!useLearning) return empty;
+  // 2) 別名・略称（prg1 → 知能情報プログラミング１）
+  if (useAliases) {
+    const a = aliases.match({ fileName: file.fileName, text: file.text });
+    if (a) {
+      return {
+        ...base, matched: true, source: 'alias',
+        subjectId: a.subjectId, subjectName: a.subjectName, folderPath: a.folderPath,
+        aliasId: a.aliasId, matchedBy: a.where === 'content' ? 'content' : 'filename',
+        // 本文はフッターに繰り返し出るほど信頼できる（他科目への言及は数回で終わる）
+        confidence: a.where === 'filename_head' ? 0.95
+          : a.where === 'filename' ? 0.85
+            : a.occurrences >= 3 ? 0.9 : 0.7,
+        alias: a.alias, occurrences: a.occurrences,
+      };
+    }
+  }
+
+  // 3) 手動配置の学習による推定
+  if (!useLearning) return base;
   const suggestions = learn.suggest({ fileName: file.fileName, text: file.text, topK: 3 });
-  if (!suggestions.length) return empty;
+  if (!suggestions.length) return base;
 
   const top = suggestions[0];
-  if (top.probability < minConfidence) {
-    return { ...empty, suggestions };  // 自信が無いのでUIで確認させる
-  }
+  if (top.probability < minConfidence) return { ...base, suggestions };
+
   return {
-    matched: true, source: 'learning',
-    subjectId: top.subjectId, subjectName: top.subjectName,
-    folderPath: top.folderPath, subfolder: null,
-    ruleId: null, matchedBy: file.text ? 'both' : 'filename',
-    confidence: top.probability,
-    suggestions,
+    ...base, matched: true, source: 'learning',
+    subjectId: top.subjectId, subjectName: top.subjectName, folderPath: top.folderPath,
+    matchedBy: file.text ? 'both' : 'filename', confidence: top.probability, suggestions,
   };
 }
 
@@ -913,10 +1002,7 @@ function classify(file, opts = {}) {
  * メンテナンス
  * ==========================================================================*/
 
-function vacuum() { assertReady(); db.exec('VACUUM'); return true; }
-
-/** 定期メンテ（起動時などに呼ぶ） */
-function maintenance() {
+export function maintenance() {
   assertReady();
   const removedHistory = history.purgeOlderThan();
   const removedCache = content.purgeOlderThan(90);
@@ -924,11 +1010,8 @@ function maintenance() {
   return { removedHistory, removedCache };
 }
 
-module.exports = {
+export default {
   init, close, getDb, migrate, backup, vacuum, maintenance,
-  settings, subjects, rules, conditions: { insertConditions },
-  content, queue, history, learn,
-  classify,
-  // 低レベルユーティリティ（テスト・拡張用）
-  matcher, learner,
+  settings, subjects, aliases, rules, content, queue, history, learn,
+  classify, splitFolderName, matcher, learner,
 };

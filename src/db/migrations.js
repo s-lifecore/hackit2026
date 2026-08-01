@@ -1,4 +1,3 @@
-'use strict';
 /**
  * マイグレーション定義
  * -----------------------------------------------------------------------------
@@ -7,7 +6,7 @@
  * （例: 列を足したい → version 2 を新しく追加して ALTER TABLE を書く）
  */
 
-const MIGRATIONS = [
+export const MIGRATIONS = [
   {
     version: 1,
     name: 'init',
@@ -220,6 +219,78 @@ INSERT INTO settings(key, value) VALUES
   ('history_retention_days',  '365');
 `,
   },
-];
 
-module.exports = { MIGRATIONS };
+  {
+    version: 2,
+    name: 'subject_aliases',
+    sql: /* sql */ `
+--------------------------------------------------------------------------------
+-- subject_aliases : 科目の別名・略称
+--------------------------------------------------------------------------------
+-- 実ファイルの調査で判明したこと:
+--   prg1_202604_w11p_演習.pdf      → 知能情報プログラミング１（共通文字ゼロ）
+--   PD入門_2026_w13_おもちゃ開発3.pdf → プロジェクト演習入門（共通は「入門」だけ）
+-- 科目名の部分一致では永久に当たらないため、別名の対応表が必須になる。
+--------------------------------------------------------------------------------
+CREATE TABLE subject_aliases (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  -- NFKC正規化・小文字化して保存すること（⑧→8, １→1）
+  alias      TEXT    NOT NULL,
+  -- manual: 人が登録 / learned: 学習から自動抽出 / folder: フォルダ名から生成
+  origin     TEXT    NOT NULL DEFAULT 'manual'
+               CHECK (origin IN ('manual','learned','folder')),
+  -- 判定時の重み。略称ほど強い証拠になる
+  weight     REAL    NOT NULL DEFAULT 1.0,
+  hit_count  INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (subject_id, alias)
+);
+CREATE INDEX idx_aliases_alias   ON subject_aliases(alias);
+CREATE INDEX idx_aliases_subject ON subject_aliases(subject_id);
+
+-- 振り分け先ルートフォルダ（ここを走査して科目を一括登録する）
+INSERT OR IGNORE INTO settings(key, value) VALUES
+  ('subject_root', ''),
+  ('alias_min_length', '2');
+`,
+  },
+
+  {
+    version: 3,
+    name: 'startup_scan',
+    sql: /* sql */ `
+--------------------------------------------------------------------------------
+-- 方針転換: ダウンロードフォルダの「常時監視」をやめ、
+--           PC起動時に1回だけスキャンして振り分ける方式にする。
+--
+-- これにより chokidar の常駐・ダウンロード完了判定・無限ループ対策が不要になり、
+-- 常駐メモリもCPUも使わなくなる。
+-- watch_folder は互換のため残し、scan_folder が未設定なら fallback して使う。
+--------------------------------------------------------------------------------
+INSERT OR IGNORE INTO settings(key, value) VALUES
+  ('scan_folder',       ''),   -- 走査対象（通常は %USERPROFILE%\\Downloads）
+  ('scan_on_startup',   '1'),  -- PC起動時に自動でスキャンするか
+  ('launch_at_login',   '1'),  -- OSのログイン時に起動を登録するか
+  ('setup_completed',   '0'),  -- 初期セットアップ済みか（2回目以降はメイン画面へ直行）
+  ('last_scan_at',      ''),   -- 最後にスキャンした日時
+  ('last_scan_result',  '');   -- 最後の結果（JSON: {scanned,moved,unmatched,failed}）
+
+-- スキャンの実行履歴（UIの「前回：◯件を移動しました」表示に使う）
+CREATE TABLE scan_runs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  finished_at TEXT,
+  -- startup: PC起動時 / manual: ユーザーが実行 / setup: 初期設定直後
+  trigger     TEXT NOT NULL DEFAULT 'startup'
+                CHECK (trigger IN ('startup','manual','setup')),
+  scanned     INTEGER NOT NULL DEFAULT 0,
+  moved       INTEGER NOT NULL DEFAULT 0,
+  unmatched   INTEGER NOT NULL DEFAULT 0,
+  failed      INTEGER NOT NULL DEFAULT 0,
+  error       TEXT
+);
+CREATE INDEX idx_scan_runs_at ON scan_runs(started_at DESC);
+`,
+  },
+];

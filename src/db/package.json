@@ -3,16 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "description": "ファイルオート振り分け（仮） — ダウンロードフォルダ自動振り分けデスクトップアプリ",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "test:db": "node src/db/test-db.js",
-    "lint": "eslint . --no-error-on-unmatched-pattern"
+    "test:db": "node back/test-db.js",
+    "inspect": "node back/inspect.js"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.9.0",
-    "eslint": "^9.9.0"
+    "better-sqlite3": "^13.0.2"
   },
   "license": "MIT"
 }
