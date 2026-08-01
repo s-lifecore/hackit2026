@@ -1,0 +1,14 @@
+{
+  "name": "hackit2026",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ファイルオート振り分け（仮） — ダウンロードフォルダ自動振り分けデスクトップアプリ",
+  "scripts": {
+    "lint": "eslint . --no-error-on-unmatched-pattern"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "eslint": "^9.9.0"
+  },
+  "license": "MIT"
+}
