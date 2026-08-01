@@ -1,0 +1,13 @@
+{
+  "name": "hackit2026",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ファイルオート振り分け（仮） — ダウンロードフォルダ自動振り分けデスクトップアプリ",
+  "scripts": {
+    "test:db": "node src/db/test-db.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.2"
+  },
+  "license": "MIT"
+}
