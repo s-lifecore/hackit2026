@@ -5,7 +5,11 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['scan:start', 'scan:progress', 'scan:done', 'file:unmatched', 'file:failed'];
+const EVENTS = [
+  'scan:start', 'scan:progress', 'scan:done', 'file:unmatched', 'file:failed',
+  // エクスプローラー側でフォルダやファイルが変わったときに飛んでくる
+  'fs:changed'
+];
 
 const api = {
   app: {
@@ -16,7 +20,13 @@ const api = {
   subjects: {
     list:       () => ipcRenderer.invoke('subjects:list'),
     createMany: (names, baseFolder) => ipcRenderer.invoke('subjects:createMany', names, baseFolder),
-    remove:     (subjectId) => ipcRenderer.invoke('subjects:remove', subjectId)
+    remove:     (subjectId) => ipcRenderer.invoke('subjects:remove', subjectId),
+    /** 科目フォルダの中を実際に読んで数えた件数 */
+    counts:     () => ipcRenderer.invoke('subjects:counts')
+  },
+  sync: {
+    /** エクスプローラーの状態にアプリを合わせ直す */
+    now: () => ipcRenderer.invoke('sync:now')
   },
   rules: {
     getKeywords: () => ipcRenderer.invoke('rules:getKeywords'),
@@ -29,6 +39,8 @@ const api = {
   },
   history: {
     countBySubject: () => ipcRenderer.invoke('history:countBySubject'),
+    /** 振り分けた履歴（新しい順）。再起動しても残る */
+    list:           (limit) => ipcRenderer.invoke('history:list', limit),
     undoLast:       (n) => ipcRenderer.invoke('history:undoLast', n)
   },
   scan: {
@@ -40,7 +52,9 @@ const api = {
     chooseFolder: () => ipcRenderer.invoke('dialog:chooseFolder')
   },
   shell: {
-    openFolder: (folderPath) => ipcRenderer.invoke('shell:openFolder', folderPath)
+    openFolder:   (folderPath) => ipcRenderer.invoke('shell:openFolder', folderPath),
+    /** エクスプローラーでそのファイルを選択した状態で開く */
+    showInFolder: (target) => ipcRenderer.invoke('shell:showInFolder', target)
   },
   debug: {
     explain: (queueId) => ipcRenderer.invoke('debug:explain', queueId)

@@ -3,11 +3,12 @@
  * ipc.js — レンダラー(window.api) からの呼び出しを受ける
  * チャンネル名と戻り値の形は file-auto-sort.wired.html の実装に合わせてある。
  */
+const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { ipcMain, dialog, shell } = require('electron');
 
-const { runScan, uniquePath, moveFile, getText } = require('./scanner');
+const { runScan, syncQueue, countAllSubjects, uniquePath, moveFile, getText } = require('./scanner');
 const { buildModel, learn } = require('./classifier');
 
 /** Windows で使えない文字を落とす */
@@ -42,6 +43,57 @@ function register(ctx) {
     id: s.id, name: s.name, folderPath: s.folder_path, folder_path: s.folder_path, keyword: s.keyword || ''
   })));
 
+  /** 科目ごとのファイル数（実際にフォルダを読んで数える） */
+  H('subjects:counts', () => countAllSubjects(store));
+
+  /**
+   * エクスプローラー側の状態にアプリを合わせ直す。
+   *  ・フォルダごと消された科目を登録から外す
+   *  ・実体が無くなったファイルを一覧から外す
+   *  ・件数を数え直す
+   * 手動同期ボタンから呼ばれるほか、フォルダ監視が変更を検知したときにも呼ばれる。
+   */
+  H('sync:now', () => runSync());
+
+  async function runSync() {
+    // 1. フォルダごと消された科目を登録から外す
+    const removedSubjects = store.pruneMissingSubjects();
+
+    // 2. 監視フォルダの中身に一覧を合わせる（新しく増えたファイルもここで拾う）
+    //    ※ 判定・移動はしない。表示を合わせるだけ。
+    const queued = await syncQueue(store);
+
+    // 3. 振り分け済みなのに実体が消えているものも一覧から外す
+    //    （科目フォルダの中でユーザーが削除・移動した場合）
+    let removedFiles = queued.removed;
+    for (const q of store.listQueue()) {
+      if (q.status !== 'done') continue;
+      const p = q.current_path || q.source_path;
+      if (!p) continue;
+      try {
+        await fsp.access(p);
+      } catch (_) {
+        store.deleteQueue(q.id);
+        removedFiles++;
+      }
+    }
+
+    if (removedSubjects.length && typeof ctx.refreshWatch === 'function') ctx.refreshWatch();
+
+    return {
+      ok: true,
+      removedSubjects,
+      removedFiles,
+      addedFiles: queued.added,
+      subjects: store.listSubjects().map(s => ({
+        id: s.id, name: s.name, folderPath: s.folder_path, folder_path: s.folder_path, keyword: s.keyword || ''
+      })),
+      counts: await countAllSubjects(store),
+      syncedAt: new Date().toISOString()
+    };
+  }
+  ctx.runSync = runSync;
+
   /**
    * 科目フォルダをまとめて作る。
    * 既存の科目は「同じ名前」なら id と学習データを引き継ぐ（設定のやり直しで学習が消えないように）。
@@ -50,9 +102,13 @@ function register(ctx) {
     const list = (names || []).map(n => String(n).trim()).filter(Boolean);
     if (!list.length) throw new Error('科目名が入力されていません');
 
-    let base = baseFolder;
+    // ★ 置き場所が決まっていないのに勝手な場所へ作らない。
+    //   以前はここで既定の場所（書類/授業フォルダ）へ黙って作っていたため、
+    //   フォルダ選択をキャンセルしたのに作成が進み、その後ユーザーがそのフォルダを
+    //   削除すると、すでに振り分けられていたファイルごと消えてしまっていた。
+    const base = String(baseFolder || '').trim();
     if (!base || base.startsWith('~')) {
-      base = path.join(require('electron').app.getPath('documents'), '授業フォルダ');
+      throw new Error('フォルダの置き場所が選ばれていません');
     }
     await fsp.mkdir(base, { recursive: true });
 
@@ -80,6 +136,8 @@ function register(ctx) {
     if (!store.get('scanFolder', null)) {
       setScanFolder(require('electron').app.getPath('downloads'));
     }
+    // 監視対象のフォルダが変わったので張り直す
+    if (typeof ctx.refreshWatch === 'function') ctx.refreshWatch();
     return rows.map(r => ({ id: r.id, name: r.name, folderPath: r.folder_path }));
   });
 
@@ -105,6 +163,7 @@ function register(ctx) {
     }
 
     store.removeSubject(subject.id);
+    if (typeof ctx.refreshWatch === 'function') ctx.refreshWatch();
     return { ok: true, trashed };
   });
 
@@ -144,9 +203,16 @@ function register(ctx) {
     let content = '';
     try { content = await getText(store, q.source_path); } catch (_) {}
 
-    await fsp.mkdir(subject.folder_path, { recursive: true });
-    const dest = await uniquePath(subject.folder_path, q.file_name);
-    await moveFile(q.source_path, dest);
+    // アプリ自身の移動なので、監視の通知でアニメーション中に再描画されないよう止める
+    if (ctx.watcher) ctx.watcher.pause();
+    let dest;
+    try {
+      await fsp.mkdir(subject.folder_path, { recursive: true });
+      dest = await uniquePath(subject.folder_path, q.file_name);
+      await moveFile(q.source_path, dest);
+    } finally {
+      if (ctx.watcher) setTimeout(() => ctx.watcher.resume(), 600);
+    }
 
     // source_path も移動先へ更新する（同名ファイルを再ダウンロードしたときに拾えるようにするため）
     store.updateQueue(q.id, {
@@ -192,6 +258,25 @@ function register(ctx) {
   /* ---------------- history ---------------- */
   H('history:countBySubject', () => store.countBySubject());
 
+  /**
+   * 振り分けた履歴（新しい順）。アプリを再起動しても残る。
+   * exists は「移動先にいまも実物があるか」。エクスプローラーで消された場合に false になる。
+   */
+  H('history:list', (limit) => {
+    const nameById = new Map(store.listSubjects().map(s => [s.id, s.name]));
+    return store.recentHistory(Math.max(1, Number(limit) || 200)).map(h => ({
+      id: String(h.id),
+      fileName: h.file_name,
+      subjectId: h.subject_id,
+      subjectName: nameById.get(h.subject_id) || '削除された科目',
+      toPath: h.to_path,
+      fromPath: h.from_path,
+      movedAt: h.moved_at,
+      origin: h.origin,
+      exists: (() => { try { return fs.existsSync(h.to_path); } catch (_) { return false; } })()
+    }));
+  });
+
   /** 直近 n 件の移動を取り消す（ファイルを元の場所へ戻し、学習も巻き戻す） */
   H('history:undoLast', async (n) => {
     const rows = store.recentHistory(Math.max(1, Number(n) || 1));
@@ -230,8 +315,13 @@ function register(ctx) {
   H('scan:runNow', async () => {
     if (ctx.state.scanning) throw new Error('すでに確認中です');
     ctx.state.scanning = true;
+    // 自分でファイルを動かしている間は監視の通知を止める（二重更新を防ぐ）
+    if (ctx.watcher) ctx.watcher.pause();
     try { return await runScan({ store, emit }, 'manual'); }
-    finally { ctx.state.scanning = false; }
+    finally {
+      ctx.state.scanning = false;
+      if (ctx.watcher) ctx.watcher.resume();
+    }
   });
 
   /* ---------------- dialog / shell ---------------- */
@@ -244,6 +334,22 @@ function register(ctx) {
     });
     if (r.canceled || !r.filePaths.length) return null;
     return { path: r.filePaths[0] };
+  });
+
+  /**
+   * エクスプローラーを開いて、そのファイルを選択した状態で表示する。
+   * 「アプリの一覧に出ている現物がどこにあるか」をすぐ確認できるようにするため。
+   */
+  H('shell:showInFolder', async (target) => {
+    const p = String(target || '');
+    if (!p) return { ok: false, error: '場所が分かりません' };
+    try {
+      await fsp.access(p);
+    } catch (_) {
+      return { ok: false, error: 'ファイルが見つかりませんでした（移動または削除された可能性があります）' };
+    }
+    shell.showItemInFolder(p);
+    return { ok: true };
   });
 
   H('shell:openFolder', async (folderPath) => {

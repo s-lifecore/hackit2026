@@ -67,6 +67,89 @@ async function getText(store, file) {
   return r.text || '';
 }
 
+/** 件数に数えない OS の管理ファイル */
+const NOT_COUNTED = /^(desktop\.ini|thumbs\.db|\.ds_store)$/i;
+const COUNT_MAX_DEPTH = 4;   // 科目フォルダの中で自分でさらに整理している人向け
+
+/**
+ * フォルダの中の実ファイル数を数える。
+ * 以前はアプリの移動履歴の件数を表示していたため、エクスプローラーで消したり
+ * 手で足したりすると表示がずれ続けていた。毎回ディスクを見に行くことで、
+ * 「エクスプローラーで見える数」と必ず一致するようにする。
+ */
+async function countFilesIn(dir, depth = 0) {
+  let entries;
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
+  catch (_) { return 0; }   // フォルダごと消されていた等
+
+  let n = 0;
+  for (const e of entries) {
+    if (e.name.startsWith('.') || e.name.startsWith('~$')) continue;
+    if (e.isDirectory()) {
+      if (depth < COUNT_MAX_DEPTH) n += await countFilesIn(path.join(dir, e.name), depth + 1);
+    } else if (e.isFile() && !NOT_COUNTED.test(e.name)) {
+      n++;
+    }
+  }
+  return n;
+}
+
+/** 全科目の件数をまとめて数える */
+async function countAllSubjects(store) {
+  const out = {};
+  for (const s of store.listSubjects()) out[s.id] = await countFilesIn(s.folder_path);
+  return out;
+}
+
+/**
+ * 監視フォルダを読み、ファイル一覧（キュー）を今の状態に合わせる。
+ * ★ ファイルの移動はしない。「画面の表示をエクスプローラーに追従させる」だけの処理。
+ *   スキャン本体の前半としても、フォルダ監視からの同期としても使う。
+ *
+ * @param {object} store
+ * @returns {Promise<{added:number, removed:number, present:Set<string>, error:string|null}>}
+ */
+async function syncQueue(store) {
+  const folder = store.get('scanFolder', null);
+  const out = { added: 0, removed: 0, present: new Set(), error: null };
+  if (!folder) return out;
+
+  let names = [];
+  try { names = await fsp.readdir(folder); }
+  catch (e) { out.error = e.message; return out; }
+
+  for (const name of names) {
+    const full = path.join(folder, name);
+    let st;
+    try { st = await fsp.stat(full); } catch (_) { continue; }
+    if (!isCandidate(name, st)) continue;
+    out.present.add(full);
+
+    if (!store.findQueueBySource(full)) {
+      try {
+        store.insertQueue({
+          file_name: name,
+          source_path: full,
+          current_path: full,
+          size: st.size,
+          detected_at: new Date().toISOString()
+        });
+        out.added++;
+      } catch (_) { /* 同時実行での重複挿入は無視してよい */ }
+    }
+  }
+
+  // 監視フォルダから消えた「未処理」項目はキューから外す（ユーザーが自分で動かした・消した等）
+  for (const q of store.listQueue()) {
+    if (q.status === 'waiting' && !out.present.has(q.source_path)) {
+      store.deleteQueue(q.id);
+      out.removed++;
+    }
+  }
+
+  return out;
+}
+
 /**
  * スキャン本体
  * @param {object} ctx {store, emit(channel,payload)}
@@ -90,40 +173,12 @@ async function runScan(ctx, trigger = 'manual') {
   const subjectById = new Map(subjects.map(s => [s.id, s]));
 
   // --- 1. フォルダを読み、キューを最新化する ---
-  let names = [];
-  try { names = await fsp.readdir(folder); }
-  catch (e) {
-    emit('file:failed', { fileName: folder, error: e.message });
+  const synced = await syncQueue(store);
+  if (synced.error) {
+    emit('file:failed', { fileName: folder, error: synced.error });
     store.finishScan(scanId, summary);
     emit('scan:done', summary);
     return summary;
-  }
-
-  const present = [];
-  for (const name of names) {
-    const full = path.join(folder, name);
-    let st;
-    try { st = await fsp.stat(full); } catch (_) { continue; }
-    if (!isCandidate(name, st)) continue;
-    present.push({ name, full, size: st.size });
-
-    if (!store.findQueueBySource(full)) {
-      try {
-        store.insertQueue({
-          file_name: name,
-          source_path: full,
-          current_path: full,
-          size: st.size,
-          detected_at: new Date().toISOString()
-        });
-      } catch (e) { /* 同時実行での重複挿入は無視してよい */ }
-    }
-  }
-
-  // 監視フォルダから消えた「未処理」項目はキューから外す（ユーザーが自分で動かした等）
-  const presentSet = new Set(present.map(p => p.full));
-  for (const q of store.listQueue()) {
-    if (q.status === 'waiting' && !presentSet.has(q.source_path)) store.deleteQueue(q.id);
   }
 
   // --- 2. 未処理のものを判定して移動する ---
@@ -191,4 +246,7 @@ async function runScan(ctx, trigger = 'manual') {
   return summary;
 }
 
-module.exports = { runScan, uniquePath, moveFile, getText, isCandidate };
+module.exports = {
+  runScan, syncQueue, countFilesIn, countAllSubjects,
+  uniquePath, moveFile, getText, isCandidate
+};
