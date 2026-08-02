@@ -180,33 +180,6 @@ async function runScan(ctx, trigger = 'manual') {
     return summary;
   }
 
-  const present = [];
-  for (const name of names) {
-    const full = path.join(folder, name);
-    let st;
-    try { st = await fsp.stat(full); } catch { continue; }
-    if (!isCandidate(name, st)) continue;
-    present.push({ name, full, size: st.size });
-
-    if (!store.findQueueBySource(full)) {
-      try {
-        store.insertQueue({
-          file_name: name,
-          source_path: full,
-          current_path: full,
-          size: st.size,
-          detected_at: new Date().toISOString()
-        });
-      } catch { /* 同時実行での重複挿入は無視してよい */ }
-    }
-  }
-
-  // 監視フォルダから消えた「未処理」項目はキューから外す（ユーザーが自分で動かした等）
-  const presentSet = new Set(present.map(p => p.full));
-  for (const q of store.listQueue()) {
-    if (q.status === 'waiting' && !presentSet.has(q.source_path)) store.deleteQueue(q.id);
-  }
-
   // --- 2. 未処理のものを判定して移動する ---
   const pending = store.listQueue().filter(q => q.status === 'waiting');
   summary.scanned = pending.length;
