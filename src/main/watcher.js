@@ -26,15 +26,42 @@ function createWatcher(onChange) {
   let debounceTimer = null;
   let safetyTimer = null;
   let paused = 0;      // アプリ自身がファイルを動かしている間は止める
-  let dirty = false;   // 停止中に変更があったか
+  let dirty = false;   // 止めている間／実行中に変更があったか
+  let running = false; // onChange を実行中か
+
+  /**
+   * onChange を1本だけ走らせる。
+   * onChange（＝同期処理）が DEBOUNCE_MS より長くかかる場合、待ち合わせが無いと
+   * 前回が終わる前に次が始まって二重に走る。実行中は dirty に積むだけにする。
+   */
+  async function run(reason) {
+    running = true;
+    try {
+      await onChange(reason);
+    } catch (e) {
+      console.error('[watcher]', e);
+    } finally {
+      running = false;
+      // 実行中に来ていた変更をここで拾い直す
+      if (dirty && paused === 0) { dirty = false; fire('pending'); }
+    }
+  }
 
   function fire(reason) {
-    if (paused > 0) { dirty = true; return; }
+    if (paused > 0 || running) { dirty = true; return; }
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
+<<<<<<< HEAD
       if (paused > 0) { dirty = true; return; }
       try { onChange(reason); } catch (e) { console.error('[watcher]', e); }
+=======
+      // タイマーを仕掛けてから発火するまでの間に pause() されている（あるいは
+      // 別の実行が始まっている）ことがあるため、ここでもう一度確認する。
+      // 確認しないと、アプリ自身がファイルを移動している最中に同期が割り込む。
+      if (paused > 0 || running) { dirty = true; return; }
+      run(reason);
+>>>>>>> 2ace96b3f9d69a22e0df1ad015f5539b5bf00386
     }, DEBOUNCE_MS);
   }
 
