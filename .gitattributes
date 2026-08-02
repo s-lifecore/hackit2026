@@ -10,3 +10,6 @@
 *.docx binary
 *.pptx binary
 *.xlsx binary
+
+# .bat は Windows の cmd.exe で確実に動くよう CRLF 固定
+*.bat text eol=crlf

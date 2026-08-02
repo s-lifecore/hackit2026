@@ -68,6 +68,19 @@ npm install
 npm start
 ```
 
+## ダウンロード（ビルド不要）
+
+自分でビルドしなくても、[GitHub Releases](../../releases/latest) から実行ファイルを直接ダウンロードできます。
+
+| ファイル | 内容 |
+|---|---|
+| `FileFly Setup 1.0.0.exe` | インストーラ。ダブルクリックしてインストール |
+| `FileFly-portable-1.0.0.exe` | インストール不要。ダブルクリックで起動 |
+| `scripts/起動.bat` | ポータブル版exeと同じフォルダに置いて実行すると、そのexeを探して起動する |
+| `scripts/セットアップ.bat` | 開発者向け。ソースコードから `npm install` → `npm start` まで自動で行う |
+
+---
+
 ## exe を作る
 
 **Windows の PC で実行してください。**

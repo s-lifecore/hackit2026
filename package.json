@@ -27,6 +27,7 @@
   "build": {
     "appId": "jp.group1.filefly",
     "productName": "FileFly",
+    "publish": null,
     "directories": {
       "output": "dist",
       "buildResources": "build"
