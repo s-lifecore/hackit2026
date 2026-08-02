@@ -4,6 +4,7 @@
 
 **ネイティブモジュールを一切使っていません。** `npm install` は Visual Studio Build Tools 無しで必ず通ります。
 
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ---
 
 ## 1. 動かす
