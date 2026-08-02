@@ -1231,7 +1231,7 @@ input{ font:inherit; color:inherit; }
         <span class="head-actions">
           <span class="rule-prefix" id="fileHint">ドラッグで手動振り分け</span>
           <button class="button button--quiet" id="resetBtn">元に戻す</button>
-          <button class="button button--quiet" id="clearAllBtn" title="デバッグ用：一覧のファイルをまとめてごみ箱へ移動します">全部削除</button>
+          <button class="button button--quiet" id="clearAllBtn" title="デバッグ用：一覧のファイルをまとめてごみ箱へ移動します" hidden>全部削除</button>
         </span>
       </div>
       <div class="panel-body" id="fileScroll"></div>
@@ -1328,6 +1328,19 @@ function escapeHtml(s){
   flag.hidden = true;    // 実験用の目印。デバッグしたいときは false にする
   flag.textContent = isMock ? 'mock-api（ダミー接続）' : 'preload（本番接続）';
 })();
+
+/**
+ * デバッグ用ツールの表示切り替え。
+ * ここを true にした状態でビルド/起動したときだけ「全部削除」ボタンを表示する。
+ * 通常のユーザー向けビルドでは false のままにしておくこと
+ *（振り分け済みの科目フォルダの中身も含めて丸ごとごみ箱行きにする強力な操作なので、
+ *   誤操作防止のため一般ユーザーの目に触れる場所には常設しない）。
+ * ボタンを出さない場合でも、開発中は DevTools のコンソールから
+ *   await window.api.queue.clearAll()
+ * を直接呼べば同じ処理を実行できる。
+ */
+const DEBUG_TOOLS_ENABLED = false;
+document.getElementById('clearAllBtn').hidden = !DEBUG_TOOLS_ENABLED;
 
 /* ============================================================
    セットアップ：STEP 1（個数）
