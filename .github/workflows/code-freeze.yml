@@ -81,9 +81,15 @@ jobs:
 
           branches=$(gh api "repos/${{ github.repository }}/branches?per_page=100" --paginate --jq '.[].name')
 
-          for b in $branches; do
+          fail=0
+          while IFS= read -r b; do
+            [ -z "$b" ] && continue
+            # ブランチ名に # が含まれると、そこがURLのフラグメント区切りとみなされて
+            # 404になる（例: "review/pr#30"）。"/" はこのAPIではそのままで通る
+            # （複数階層のブランチ名で確認済み）ので、"#" だけ %23 に置き換える。
+            enc="${b//#/%23}"
             echo "== ${ACTION} branch: $b =="
-            gh api --method PUT "repos/${{ github.repository }}/branches/$b/protection" \
+            if ! gh api --method PUT "repos/${{ github.repository }}/branches/$enc/protection" \
               --input - <<EOF
           {
             "required_status_checks": null,
@@ -93,6 +99,11 @@ jobs:
             "lock_branch": ${LOCK_VALUE}
           }
           EOF
-          done
+            then
+              echo "::error::branch '$b' の${ACTION}に失敗しました（続行します）"
+              fail=1
+            fi
+          done <<< "$branches"
 
           echo "### Code Freeze: ${ACTION} 完了 (対象ブランチ: $(echo "$branches" | wc -l)件)" >> "$GITHUB_STEP_SUMMARY"
+          exit $fail
