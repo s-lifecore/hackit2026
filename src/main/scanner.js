@@ -6,7 +6,6 @@
  *   ・判定できたファイルだけを科目フォルダへ移動する
  *   ・迷った／関係なさそうなファイルはダウンロードフォルダに置いたままにする
  */
-const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 
@@ -38,7 +37,7 @@ async function uniquePath(dir, fileName) {
   let candidate = path.join(dir, fileName);
   let i = 2;
   while (true) {
-    try { await fsp.access(candidate); } catch (_) { return candidate; }
+    try { await fsp.access(candidate); } catch { return candidate; }
     candidate = path.join(dir, `${base} (${i})${ext}`);
     i++;
   }
@@ -58,7 +57,7 @@ async function moveFile(from, to) {
 /** キャッシュ付きのテキスト抽出 */
 async function getText(store, file) {
   let st;
-  try { st = await fsp.stat(file); } catch (_) { return ''; }
+  try { st = await fsp.stat(file); } catch { return ''; }
   const key = Math.floor(st.mtimeMs);
   const cached = store.getCachedText(file, key, st.size);
   if (cached !== null && cached !== undefined) return cached;
@@ -121,7 +120,7 @@ async function syncQueue(store) {
   for (const name of names) {
     const full = path.join(folder, name);
     let st;
-    try { st = await fsp.stat(full); } catch (_) { continue; }
+    try { st = await fsp.stat(full); } catch { continue; }
     if (!isCandidate(name, st)) continue;
     out.present.add(full);
 
@@ -133,9 +132,10 @@ async function syncQueue(store) {
           current_path: full,
           size: st.size,
           detected_at: new Date().toISOString()
-        });
+     
         out.added++;
-      } catch (_) { /* 同時実行での重複挿入は無視してよい */ }
+      } catch { /* 同時実行での重複挿入は無視してよい */ }
+
     }
   }
 
@@ -192,7 +192,7 @@ async function runScan(ctx, trigger = 'manual') {
 
     let content = '';
     try { content = await getText(store, q.source_path); }
-    catch (e) { /* 内容が読めなくてもファイル名だけで判定を続ける */ }
+    catch { /* 内容が読めなくてもファイル名だけで判定を続ける */ }
 
     const verdict = classify({ fileName: q.file_name, content }, model);
 

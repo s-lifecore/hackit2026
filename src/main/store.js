@@ -34,7 +34,7 @@ function readJson(file, fallback) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
     console.warn('[store] 読み込みに失敗したので初期化します:', file, e.message);
-    try { fs.renameSync(file, file + '.broken-' + Date.now()); } catch (_) {}
+    try { fs.renameSync(file, file + '.broken-' + Date.now()); } catch { /* ignore */ }
     return fallback;
   }
 }

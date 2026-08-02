@@ -13,6 +13,7 @@ const { buildModel, learn } = require('./classifier');
 
 /** Windows で使えない文字を落とす */
 function safeFolderName(name) {
+  // eslint-disable-next-line no-control-regex -- Windowsで使えない制御文字(\x00-\x1f)を意図的に対象にしている
   return String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').trim() || 'フォルダ';
 }
 
@@ -201,7 +202,7 @@ function register(ctx) {
     if (q.status === 'done') return { ok: true, subjectName: subject.name, alreadyDone: true };
 
     let content = '';
-    try { content = await getText(store, q.source_path); } catch (_) {}
+    try { content = await getText(store, q.source_path); } catch { /* ignore */ }
 
     // アプリ自身の移動なので、監視の通知でアニメーション中に再描画されないよう止める
     if (ctx.watcher) ctx.watcher.pause();
@@ -284,7 +285,7 @@ function register(ctx) {
     for (const h of rows) {
       try {
         let content = '';
-        if (h.origin === 'manual') { try { content = await getText(store, h.to_path); } catch (_) {} }
+        if (h.origin === 'manual') { try { content = await getText(store, h.to_path); } catch { /* ignore */ } }
         await fsp.mkdir(path.dirname(h.from_path), { recursive: true });
         const back = await uniquePath(path.dirname(h.from_path), h.file_name);
         await moveFile(h.to_path, back);

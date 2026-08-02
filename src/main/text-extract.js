@@ -5,7 +5,6 @@
  * 対応：PDF（重点）／ Office（docx, pptx, xlsx）／ テキスト系（UTF-8・Shift_JIS）
  * 非対応の形式は空文字を返し、その場合はファイル名だけで判定される。
  */
-const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 
@@ -36,7 +35,7 @@ function loadPdfjs() {
       const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
       try {
         pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
-      } catch (_) {
+      } catch {
         // ワーカーが見つからなくても、メインプロセス側の fake worker で動作する
       }
       return pdfjs;
@@ -68,7 +67,7 @@ async function extractPdf(file) {
     }
     return clip(parts.join('\n'));
   } finally {
-    try { await doc.destroy(); } catch (_) {}
+    try { await doc.destroy(); } catch { /* ignore */ }
   }
 }
 
@@ -140,7 +139,7 @@ function decode(buf) {
   try {
     const iconv = require('iconv-lite');
     return iconv.decode(buf, 'Shift_JIS');
-  } catch (_) { return utf8; }
+  } catch { return utf8; }
 }
 
 async function extractText(file) {
