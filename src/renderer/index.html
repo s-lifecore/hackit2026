@@ -2391,9 +2391,9 @@ async function applySync(result, { force = false } = {}){
   const sig = syncSignature(result);
   const fileChanged = (result.addedFiles || 0) > 0 || (result.removedFiles || 0) > 0;
   if(!force && sig === lastSyncSig && !fileChanged) return;
-  lastSyncSig = sig;
 
   if(!force && isBusyInteracting()) return;
+  lastSyncSig = sig;
 
   const subjectsChanged = (result.subjects || []).length !== FOLDERS.length
     || (result.subjects || []).some((s, i) => FOLDERS[i]?.id !== s.id || FOLDERS[i]?.name !== s.name);

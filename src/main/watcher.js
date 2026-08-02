@@ -33,6 +33,7 @@ function createWatcher(onChange) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
+      if (paused > 0) { dirty = true; return; }
       try { onChange(reason); } catch (e) { console.error('[watcher]', e); }
     }, DEBOUNCE_MS);
   }

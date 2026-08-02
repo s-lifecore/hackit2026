@@ -78,7 +78,7 @@ function createWindow(show) {
 
   // エクスプローラーで操作してからアプリに戻ってきた瞬間に必ず最新にする。
   // OS の通知を取りこぼしていても、ここで確実に追いつく。
-  win.on('focus', () => onFsChange('focus'));
+  win.on('focus', () => { if (!state.scanning) onFsChange('focus'); });
 
   // × を押しても終了せずトレイに残す（次回のPC起動を待つ必要がないように）
   win.on('close', (e) => {

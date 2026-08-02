@@ -310,20 +310,26 @@ function register(ctx) {
   H('history:undoLast', async (n) => {
     const rows = store.recentHistory(Math.max(1, Number(n) || 1));
     let undone = 0;
-    for (const h of rows) {
-      try {
-        let content = '';
-        if (h.origin === 'manual') { try { content = await getText(store, h.to_path); } catch { /* ignore */ } }
-        await fsp.mkdir(path.dirname(h.from_path), { recursive: true });
-        const back = await uniquePath(path.dirname(h.from_path), h.file_name);
-        await moveFile(h.to_path, back);
-        store.markUndone(h.id);
-        store.updateQueue(h.queue_id, { status: 'waiting', subject_id: null, current_path: back, source_path: back, reason: '取り消し済み' });
-        if (h.origin === 'manual') learn(store, h.subject_id, { fileName: h.file_name, content }, -1);
-        undone++;
-      } catch (e) {
-        emit('file:failed', { fileName: h.file_name, error: '戻せませんでした: ' + e.message });
+    // アプリ自身の移動なので、監視の通知で二重更新されないよう止める
+    if (ctx.watcher) ctx.watcher.pause();
+    try {
+      for (const h of rows) {
+        try {
+          let content = '';
+          if (h.origin === 'manual') { try { content = await getText(store, h.to_path); } catch { /* ignore */ } }
+          await fsp.mkdir(path.dirname(h.from_path), { recursive: true });
+          const back = await uniquePath(path.dirname(h.from_path), h.file_name);
+          await moveFile(h.to_path, back);
+          store.markUndone(h.id);
+          store.updateQueue(h.queue_id, { status: 'waiting', subject_id: null, current_path: back, source_path: back, reason: '取り消し済み' });
+          if (h.origin === 'manual') learn(store, h.subject_id, { fileName: h.file_name, content }, -1);
+          undone++;
+        } catch (e) {
+          emit('file:failed', { fileName: h.file_name, error: '戻せませんでした: ' + e.message });
+        }
       }
+    } finally {
+      if (ctx.watcher) setTimeout(() => ctx.watcher.resume(), 600);
     }
     return { ok: true, undone };
   });
