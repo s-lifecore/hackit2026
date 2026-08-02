@@ -1004,15 +1004,33 @@ input{ font:inherit; color:inherit; }
   animation:step-in var(--duration-base) var(--ease-out);
   overflow-y:auto;
 }
-/* 初回チュートリアル */
-.tutorial-list{ list-style:none; margin:0 0 var(--space-3); padding:0; display:grid; gap:var(--space-3); }
+/* チュートリアル */
+#tutorialModal .setup-card{ width:min(640px,100%); max-height:88vh; overflow-y:auto; }
+.tutorial-head{
+  margin:var(--space-5) 0 var(--space-2);
+  padding-bottom:var(--space-2);
+  border-bottom:1px solid var(--color-border);
+  font-size:13px;
+  font-weight:700;
+  letter-spacing:.04em;
+  color:var(--color-text);
+}
+.tutorial-head:first-of-type{ margin-top:var(--space-4); }
+.tutorial-note{
+  margin:0 0 var(--space-3);
+  font-size:12px;
+  line-height:1.75;
+  color:var(--color-text-mute);
+}
+.tutorial-note b{ color:var(--color-text); font-weight:700; }
+.tutorial-list{ list-style:none; margin:0 0 var(--space-3); padding:0; display:grid; gap:var(--space-2); }
 .tutorial-list li{
   padding:var(--space-3);
   border:1px solid var(--color-border);
   border-radius:var(--radius-sm);
   background:var(--color-sunken);
   font-size:12.5px;
-  line-height:1.6;
+  line-height:1.65;
 }
 .tutorial-list li b{ color:var(--color-accent); }
 
@@ -1300,13 +1318,67 @@ input{ font:inherit; color:inherit; }
   <div class="setup-card">
     <p class="eyebrow">はじめに</p>
     <h2 id="tutorialModalTitle">FileFly の使い方</h2>
-    <p>フォルダを作り終えたら、あとはこの4つを覚えておけば大丈夫です。</p>
+    <p>ダウンロードフォルダに溜まった授業資料を、科目フォルダへ自動で振り分けます。<br>
+      右上の <b>?</b> からいつでもこの画面を開けます。</p>
+
+    <h3 class="tutorial-head">1. いつ振り分けが動くか</h3>
     <ul class="tutorial-list">
-      <li><b>自動で振り分け</b> — パソコンを起動すると、ダウンロードフォルダを1回だけ確認して自動で振り分けます。</li>
-      <li><b>迷ったら残す</b> — どの科目か分からないファイルは動かさず、ダウンロードフォルダに残ります。</li>
-      <li><b>ドラッグで教える</b> — 残ったファイルをフォルダへドラッグすると、次回から似た名前のファイルが自動で振り分けられるようになります。</li>
-      <li><b>削除もできます</b> — フォルダやファイルの「ごみ箱」アイコンから削除できます（完全削除ではなくごみ箱に移動します）。</li>
+      <li><b>パソコンの起動時</b> — 画面を出さずに1回だけ確認します。</li>
+      <li><b>アプリを開いたとき</b> — 前回から3分以上空いていれば確認します。</li>
+      <li><b>「全ファイル移動」</b> — 押すとその場で確認します。</li>
     </ul>
+    <p class="tutorial-note">動くのは科目フォルダを1つ以上作ったあとです。<br>
+      勝手に動き続けることはありません。上のバーに「前回 ○時○分 ○件を移動」と結果が出ます。</p>
+
+    <h3 class="tutorial-head">2. どうやって科目を見分けているか</h3>
+    <p class="tutorial-note">次のどれかに当てはまるときだけ移動します。当てはまらなければ動かしません。</p>
+    <ul class="tutorial-list">
+      <li><b>ファイル名に科目名がある</b> — 「コンピュータシステム基礎_第3回.pdf」のような形。最も確実です。</li>
+      <li><b>資料の先頭に科目名がある</b> — PDF や PowerPoint の表紙・1枚目に載っていれば読み取ります。</li>
+      <li><b>過去に教えた名前と似ている</b> — 手で振り分けた履歴から、あなたの授業の命名規則を覚えます。</li>
+    </ul>
+    <p class="tutorial-note">
+      <b>Word（.docx）は慎重に扱います。</b>自分で書くレポートには「課題」「考察」「参考文献」など
+      どの科目にも出てくる言葉ばかりで、科目名が書かれていないことが多いためです。
+      ファイル名か文書の先頭に科目名がはっきり無いかぎり動かしません。
+    </p>
+
+    <h3 class="tutorial-head">3. 見ているファイルの種類</h3>
+    <ul class="tutorial-list">
+      <li><b>中身まで読む</b> — PDF / Word / PowerPoint / Excel / テキスト</li>
+      <li><b>ファイル名だけで判断</b> — 画像や、上に当てはまらない形式</li>
+      <li><b>最初から対象外</b> — .exe .dll .msi .iso .lnk .tmp、ダウンロード中のファイル</li>
+    </ul>
+
+    <h3 class="tutorial-head">4. 迷ったファイルは自分で教える</h3>
+    <ul class="tutorial-list">
+      <li><b>ドラッグで振り分ける</b> — 残ったファイルを左のフォルダへドラッグすると移動します。</li>
+      <li><b>3回ほどで覚えます</b> — 同じ命名のファイルを何度か教えると、次から自動で振り分けられるようになります。</li>
+      <li><b>キーワードでも指定できる</b> — 「配置条件の変更」で科目ごとに言葉を決められます。
+        略称で配布される資料（PD入門 など）に有効です。</li>
+    </ul>
+
+    <h3 class="tutorial-head">5. 移動したファイルの追い方</h3>
+    <ul class="tutorial-list">
+      <li><b>その場では取り消し線</b> — 移動した直後は一覧に残り、取り消し線が付きます。</li>
+      <li><b>次回起動から履歴欄へ</b> — 一覧からは消え、左下の履歴欄に「ファイル名／移動先」で残ります。</li>
+      <li><b>クリックで場所を開く</b> — 履歴の項目や、ファイル右側の矢印ボタンからエクスプローラーで開けます。</li>
+    </ul>
+
+    <h3 class="tutorial-head">6. エクスプローラーとの関係</h3>
+    <ul class="tutorial-list">
+      <li><b>常に追いかけます</b> — エクスプローラーでファイルやフォルダを追加・削除・移動すると、画面もすぐ変わります。</li>
+      <li><b>フォルダを消したら科目も消えます</b> — アプリが勝手に作り直すことはありません。</li>
+      <li><b>ずれたら「同期」</b> — フォルダ欄の回転アイコンを押すと、その場で読み直します。</li>
+    </ul>
+
+    <h3 class="tutorial-head">7. そのほか</h3>
+    <ul class="tutorial-list">
+      <li><b>右上のフォルダ＋</b> — 科目フォルダをあとから追加できます。いまあるフォルダは消えません。</li>
+      <li><b>ごみ箱アイコン</b> — フォルダやファイルを削除できます。完全削除ではなくWindowsのごみ箱へ移動するので、戻せます。</li>
+      <li><b>閉じても常駐します</b> — ×で閉じてもタスクトレイに残ります。完全に終了するときは、トレイのアイコンを右クリックして「終了」を選んでください。</li>
+    </ul>
+
     <div class="setup-foot">
       <span></span>
       <button class="button button--primary button--lg" id="tutorialClose">はじめる</button>
