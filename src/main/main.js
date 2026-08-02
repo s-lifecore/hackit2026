@@ -118,12 +118,47 @@ function createTray() {
 }
 
 /* ---------- 自動起動 ---------- */
+
+/**
+ * 自動起動に登録すべき exe のパスを返す。登録すべきでなければ null。
+ *
+ * ポータブル版は起動のたびに自分自身を %TEMP% の使い捨てフォルダへ展開して動く。
+ * そのため process.execPath は毎回変わる一時パスになる。
+ * これをそのまま登録すると、次回のPC起動時には
+ *   ・フォルダごと消えていて起動しない
+ *   ・中途半端に残っていて、Chromiumのリソースが読めず画面が壊れる
+ * といったことが起きる。実際にレジストリへ Temp 配下のパスが残っていた。
+ *
+ * electron-builder のポータブル版は、展開前の本来の exe パスを
+ * 環境変数 PORTABLE_EXECUTABLE_FILE に入れてくれるので、あればそれを使う。
+ */
+function launchPath() {
+  const portable = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (portable) return portable;
+
+  const exe = process.execPath;
+  const tmp = [process.env.TEMP, process.env.TMP, app.getPath('temp')].filter(Boolean);
+  const inTemp = tmp.some(d => exe.toLowerCase().startsWith(path.resolve(d).toLowerCase()));
+  if (inTemp) return null;   // 使い捨てのパスなので登録しない
+
+  return exe;
+}
+
 function setAutoLaunch(enabled) {
   store.set('autoLaunch', !!enabled);
   if (process.platform === 'linux') return;   // Linux は環境依存なので触らない
+
+  const exe = enabled ? launchPath() : null;
+  if (enabled && !exe) {
+    // 一時フォルダから動いている＝登録しても次回は使えないので、何もしない
+    console.warn('[autoLaunch] 一時フォルダから起動しているため、自動起動は登録しません:', process.execPath);
+    app.setLoginItemSettings({ openAtLogin: false });
+    return;
+  }
+
   app.setLoginItemSettings({
     openAtLogin: !!enabled,
-    path: process.execPath,
+    path: exe || process.execPath,
     args: ['--autostart']
   });
 }
@@ -241,7 +276,11 @@ app.whenReady().then(async () => {
   // 初回起動時に自動起動を登録する
   if (store.get('autoLaunch', null) === null) setAutoLaunch(true);
 
-  createWindow(!AUTOSTART);
+  // PC起動時（--autostart）はウィンドウを作らない。
+  // 起動直後はディスクもCPUも混み合っていて、この時間帯に画面を描かせると
+  // ブラウザ標準スタイルの読み込みに失敗し、CSSが文字のまま表示されることがあった。
+  // 画面はトレイから開かれた時点で作れば十分で、常駐時のメモリも減る。
+  if (!AUTOSTART) createWindow(true);
   createTray();
 
   // 起動時スキャン：画面の描画が終わってから走らせる
@@ -252,8 +291,14 @@ app.whenReady().then(async () => {
       setTimeout(() => triggerScan('boot'), 1200);
     }
   };
-  if (win) win.webContents.once('did-finish-load', kick);
-  setTimeout(kick, 8000);   // 念のためのフォールバック
+  if (win) {
+    win.webContents.once('did-finish-load', kick);
+    setTimeout(kick, 8000);   // 念のためのフォールバック
+  } else {
+    // PC起動時は画面を作らないので、描画完了を待たずに走らせる。
+    // ログイン直後の混雑を避けるため少しだけ待つ。
+    setTimeout(kick, 5000);
+  }
 
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(true); });
 });
