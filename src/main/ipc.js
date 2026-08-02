@@ -256,6 +256,48 @@ function register(ctx) {
     return { ok: true, trashed };
   });
 
+
+
+  /**
+   * デバッグ用：ファイル一覧（キュー）に出ているものをまとめて削除する。
+   * 振り分け待ち・振り分け済みを問わず対象にする。実ファイルは1件ずつごみ箱へ移動し、
+   * アプリ側の登録も削除する（1件の queue:removeFile を全件分まとめて行うイメージ）。
+   *
+   * ★ trashItem がENOENT以外の理由（権限エラー・ファイルロック等）で失敗したときは
+   *   deleteQueue しない。特に status:'done' のファイルは科目フォルダ内にあり、
+   *   syncQueue は監視フォルダしか見ていないため、ここで登録を消すと実体は残ったまま
+   *   アプリからは二度と見えなくなってしまう（waitingなら次回同期で拾い直せるが、
+   *   doneだと拾い直す手段が無い）。
+   */
+  H('queue:clearAll', async () => {
+    const rows = store.listQueue();
+    if (ctx.watcher) ctx.watcher.pause();
+    let trashed = 0, failed = 0;
+    try {
+      for (const q of rows) {
+        const target = q.current_path || q.source_path;
+        try {
+          await fsp.access(target);
+          await shell.trashItem(target);
+          trashed++;
+          store.deleteQueue(q.id);
+        } catch (e) {
+          if (e && e.code === 'ENOENT') {
+            // ファイルがそもそも無かった。アプリ側の登録だけ消せばよい。
+            store.deleteQueue(q.id);
+          } else {
+            // 実ファイルが残っている＝登録も残しておかないと行方不明になる
+            failed++;
+          }
+        }
+      }
+    } finally {
+      if (ctx.watcher) setTimeout(() => ctx.watcher.resume(), 600);
+    }
+    return { ok: true, removed: rows.length, trashed, failed };
+  });
+
+
   /* ---------------- history ---------------- */
   H('history:countBySubject', () => store.countBySubject());
 
