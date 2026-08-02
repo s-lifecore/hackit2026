@@ -1,0 +1,12 @@
+# 改行コードの扱いを固定する。
+# Windows で編集すると作業ツリーは CRLF になるが、リポジトリには LF で入る。
+# これが無いと「1文字も直していないファイルが全行変更扱いになる」ことがある。
+* text=auto eol=lf
+
+# バイナリは触らない
+*.png binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.pptx binary
+*.xlsx binary

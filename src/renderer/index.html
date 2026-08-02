@@ -304,10 +304,20 @@ input{ font:inherit; color:inherit; }
 
 .workspace{
   display:grid;
-  grid-template-columns:280px 1fr;
+  grid-template-columns:300px minmax(0,1fr);
   gap:var(--space-5);
   align-items:start;
 }
+/* 左カラム：フォルダの下に履歴を積む */
+.col-side{
+  display:flex;
+  flex-direction:column;
+  gap:var(--space-5);
+  min-width:0;
+}
+/* 中身の幅でカラムが押し広げられないようにする */
+.workspace > *, .panel{ min-width:0; }
+.head-actions{ display:flex; align-items:center; gap:var(--space-2); flex:none; }
 .panel{
   background:var(--color-surface);
   border:1px solid var(--color-border);
@@ -325,16 +335,63 @@ input{ font:inherit; color:inherit; }
 }
 .panel-title{
   margin:0;
+  white-space:nowrap;
   font-size:12px;
   font-weight:700;
   letter-spacing:.14em;
   color:var(--color-text-mute);
 }
+.panel--folders .panel-body{ max-height:min(38vh,320px); }
 .panel-body{
   max-height:min(62vh,540px);
   overflow-y:auto;
   overscroll-behavior:contain;
 }
+
+/* ---- 場所を開くボタン（ファイル行） ---- */
+.mini-reveal{
+  display:grid; place-items:center;
+  flex:none;
+  width:28px; height:28px;
+  border:none;
+  border-radius:var(--radius-full);
+  background:transparent;
+  color:var(--color-text-mute);
+  opacity:.55;
+  transition:color var(--duration-fast) var(--ease-out),
+             background var(--duration-fast) var(--ease-out),
+             opacity var(--duration-fast) var(--ease-out);
+}
+.mini-reveal:hover{ color:var(--color-accent); background:var(--color-accent-weak); opacity:1; }
+
+/* ---- 移動履歴（左カラムの下） ---- */
+.panel--history .panel-body{ max-height:min(38vh,320px); }
+.history-list{ list-style:none; margin:0; padding:var(--space-2); display:flex; flex-direction:column; gap:2px; }
+.history-item{
+  display:grid;
+  grid-template-columns:1fr auto;
+  align-items:center;
+  gap:var(--space-2);
+  width:100%;
+  padding:var(--space-2) var(--space-3);
+  border:none;
+  border-radius:var(--radius-sm);
+  background:transparent;
+  font:inherit;
+  text-align:left;
+  cursor:pointer;
+  transition:background var(--duration-fast) var(--ease-out);
+}
+.history-item:hover{ background:var(--color-sunken); }
+.history-item:focus-visible{ outline:2px solid var(--color-accent); outline-offset:-2px; }
+.history-name{ display:block; font-size:13px; color:var(--color-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.history-dest{ display:block; font-size:11px; color:var(--color-text-mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.history-arrow{ flex:none; color:var(--color-text-mute); opacity:.45; }
+.history-item:hover .history-arrow{ opacity:1; color:var(--color-accent); }
+.history-item.is-missing{ cursor:default; }
+.history-item.is-missing .history-name{ color:var(--color-text-mute); }
+.history-item.is-missing .history-arrow{ display:none; }
+.history-empty{ padding:var(--space-4); font-size:12px; color:var(--color-text-mute); line-height:1.7; }
 
 /* ============================================================
    5. フォルダ（左カラム）
@@ -371,7 +428,7 @@ input{ font:inherit; color:inherit; }
 .folder{
   position:relative;
   display:grid;
-  grid-template-columns:auto 1fr auto;
+  grid-template-columns:auto minmax(0,1fr) auto;
   align-items:center;
   gap:var(--space-3);
   width:100%;
@@ -400,16 +457,27 @@ input{ font:inherit; color:inherit; }
 }
 .folder:hover::after{ opacity:1; }
 .is-dropzone .folder::after{ content:none; }
+.folder > span{ min-width:0; }
+.file > span{ min-width:0; }
 .folder-icon{ color:var(--color-text-mute); flex:none; display:block;
   transition:color var(--duration-fast) var(--ease-out); }
-.folder-name{ font-weight:600; letter-spacing:.02em; word-break:break-all; }
+.folder-name{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:600;
+  letter-spacing:.02em;
+}
 .folder-rule{
   display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
   font-family:var(--font-mono);
   font-size:10px;
   letter-spacing:.06em;
   color:var(--color-text-mute);
-  word-break:break-all;
 }
 .folder-count{
   min-width:26px;
@@ -485,7 +553,7 @@ input{ font:inherit; color:inherit; }
 .file{
   position:relative;
   display:grid;
-  grid-template-columns:auto 1fr auto;
+  grid-template-columns:auto minmax(0,1fr) auto;
   align-items:center;
   gap:var(--space-3);
   padding:var(--space-3);
@@ -502,13 +570,19 @@ input{ font:inherit; color:inherit; }
 }
 .file:hover{ background:var(--color-sunken); }
 .file-icon{ color:var(--color-text-mute); flex:none; display:block; }
-.file-name{ font-weight:500; word-break:break-all;
-  transition:color var(--duration-fast) var(--ease-out); }
+.file-name{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:500;
+  transition:color var(--duration-fast) var(--ease-out);
+}
 .file-meta{
   display:flex; align-items:center; gap:var(--space-2);
   font-family:var(--font-mono); font-size:11px; color:var(--color-text-mute);
 }
-.file-side{ display:flex; align-items:center; gap:var(--space-2); }
+.file-side{ display:flex; align-items:center; gap:var(--space-2); flex:none; }
 
 .badge{
   display:inline-block;
@@ -550,7 +624,7 @@ input{ font:inherit; color:inherit; }
 }
 .file.is-sorted:hover{ background:var(--color-surface); }
 .file.is-sorted .file-icon{ color:var(--color-success); }
-.file.is-sorted .file-name{ color:var(--color-text-mute); text-decoration:line-through; text-decoration-color:var(--color-border); }
+.file.is-sorted .file-name{ color:var(--color-text-mute); }
 .file.is-sorted .badge{ display:none; }
 
 .sorted-to{ display:none; }
@@ -618,6 +692,17 @@ input{ font:inherit; color:inherit; }
   color:var(--color-accent);
 }
 .button--quiet{ border-color:transparent; background:transparent; color:var(--color-text-mute); }
+.button--icon{
+  display:grid; place-items:center;
+  width:28px; height:28px;
+  padding:0;
+  color:var(--color-text-mute);
+}
+.button--icon svg{ transition:transform var(--duration-base) var(--ease-out); }
+.button--icon:hover svg{ transform:rotate(90deg); }
+.button--icon.is-busy svg{ animation:spin 900ms linear infinite; }
+.button--icon.is-done{ border-color:var(--color-success); color:var(--color-success); }
+@keyframes spin{ to{ transform:rotate(360deg); } }
 .button--lg{ padding:var(--space-3) var(--space-5); font-size:13px; }
 .button[disabled]{ opacity:.4; pointer-events:none; }
 .button .dot{ width:6px; height:6px; border-radius:var(--radius-full); background:currentColor; }
@@ -973,6 +1058,7 @@ input{ font:inherit; color:inherit; }
   .app{ padding:var(--space-4); }
   .setup-card{ padding:var(--space-5); }
   .workspace{ grid-template-columns:1fr; }
+  .col-side{ gap:var(--space-4); }
   .panel--folders .panel-body{ max-height:none; }
   .folder-list{ display:flex; gap:var(--space-2); overflow-x:auto; padding:var(--space-3); }
   .folder-list li{ flex:0 0 auto; }
@@ -1114,20 +1200,35 @@ input{ font:inherit; color:inherit; }
   </div>
 
   <div class="workspace">
-    <section class="panel panel--folders" aria-label="フォルダ一覧">
-      <div class="panel-head">
-        <h2 class="panel-title">フォルダ</h2>
-        <span class="folder-count" id="totalCount">0</span>
-      </div>
-      <div class="panel-body">
-        <ul class="folder-list" id="folderList"></ul>
-      </div>
-    </section>
+    <div class="col-side">
+      <section class="panel panel--folders" aria-label="フォルダ一覧">
+        <div class="panel-head">
+          <h2 class="panel-title">フォルダ</h2>
+          <span class="head-actions">
+            <span class="folder-count" id="totalCount">0</span>
+            <button class="button button--icon" id="syncBtn" title="エクスプローラーの今の状態に合わせ直します" aria-label="同期する"></button>
+          </span>
+        </div>
+        <div class="panel-body">
+          <ul class="folder-list" id="folderList"></ul>
+        </div>
+      </section>
+
+      <section class="panel panel--history" aria-label="振り分けた履歴">
+        <div class="panel-head">
+          <h2 class="panel-title">履歴</h2>
+          <span class="rule-prefix" id="historyHint"></span>
+        </div>
+        <div class="panel-body">
+          <ul class="history-list" id="historyList"></ul>
+        </div>
+      </section>
+    </div>
 
     <section class="panel panel--files" aria-label="ファイル一覧">
       <div class="panel-head">
         <h2 class="panel-title">ファイル</h2>
-        <span style="display:flex; gap:var(--space-2); align-items:center;">
+        <span class="head-actions">
           <span class="rule-prefix" id="fileHint">ドラッグで手動振り分け</span>
           <button class="button button--quiet" id="resetBtn">元に戻す</button>
         </span>
@@ -1210,6 +1311,9 @@ const wait = t => new Promise(r => setTimeout(r, t));
 const ICON_FILE = '<svg class="file-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/></svg>';
 const ICON_FOLDER = '<svg class="folder-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/></svg>';
 const ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const ICON_REVEAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/><path d="M12 17l4-4-4-4"/></svg>';
+const ICON_SYNC = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.5-4"/><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.5 4"/><path d="M19.5 3v4h-4"/><path d="M4.5 21v-4h4"/></svg>';
+const ICON_ARROW = '<svg class="history-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M9 7h8v8"/></svg>';
 const ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 
 function escapeHtml(s){
@@ -1354,10 +1458,20 @@ function renderFolders(){
 }
 
 /** ファイル一覧を window.api.queue.list() から作り直す（date-headは検出日でまとめる） */
-async function renderFiles(){
-  const items = await window.api.queue.list();
+async function renderFiles(opts){
+  const includeDone = !!(opts && opts.includeDone);
+  const all = await window.api.queue.list();
+  // 振り分け済みのファイルはもうダウンロードフォルダに無いので、一覧からは外す。
+  // 「何がどこへ行ったか」は左下の履歴欄で確認できる。
+  // （移動アニメーションを見せている最中だけ includeDone で残す）
+  const items = includeDone ? all : all.filter(it => it.status !== 'done');
+
   fileScroll.innerHTML = '';
-  if(!items.length) return;
+  if(!items.length){
+    fileScroll.innerHTML = '<p class="history-empty">ダウンロードフォルダに、まだ整理していないファイルはありません。</p>';
+    await refreshFolderCounts();
+    return;
+  }
 
   // 検出日（YYYY-MM-DD）でグルーピング
   const groups = new Map();
@@ -1399,6 +1513,7 @@ async function renderFiles(){
         </span>
         <span class="file-side">
           <span class="sorted-to">${ICON_CHECK}<span class="sorted-to-name">${subject ? escapeHtml(subject.name) : ''}</span></span>
+          <button class="mini-reveal" data-role="reveal-file" data-path="${escapeHtml(it.path || '')}" title="エクスプローラーで表示" aria-label="「${escapeHtml(name)}」の場所をエクスプローラーで開く">${ICON_REVEAL}</button>
           <button class="mini-delete" data-role="delete-file" data-queue-id="${it.id}" aria-label="「${escapeHtml(name)}」を削除">${ICON_TRASH}</button>
         </span>`;
       ul.appendChild(li);
@@ -1408,18 +1523,64 @@ async function renderFiles(){
   refreshFolderCounts();
 }
 
-/** フォルダごとの件数バッジを window.api.history.countBySubject() から反映 */
-async function refreshFolderCounts(){
-  const counts = await window.api.history.countBySubject();
-  let total = 0;
+/**
+ * フォルダごとの件数バッジを更新する。
+ * 以前はアプリの移動履歴の件数を出していたため、エクスプローラーで削除・移動すると
+ * 表示がずれ続けていた。いまは実際にフォルダを読んで数えた値（subjects.counts）を使う。
+ * すでに数え終わっている場合は counts を渡して数え直しを省ける。
+ */
+async function refreshFolderCounts(counts){
+  if(!counts) counts = await window.api.subjects.counts();
+
   document.querySelectorAll('.folder-count[data-count]').forEach(el => {
     const folderId = el.closest('.folder')?.dataset.folderId;
     const n = counts[folderId] || 0;
     el.dataset.count = n;
     el.textContent = n;
-    total += n;
   });
+
+  // 合計は画面の表示ではなく、取得した値そのものから出す。
+  // （アニメーション中の一時的な加算に引きずられないようにするため）
+  const total = FOLDERS.reduce((sum, f) => sum + (counts[f.id] || 0), 0);
   document.getElementById('totalCount').textContent = total;
+}
+
+/**
+ * 左下の履歴欄を描く。どのファイルがどこへ行ったかを新しい順に並べる。
+ * 履歴はディスクに保存しているので、アプリを再起動しても残る。
+ */
+async function renderHistory(){
+  const list = document.getElementById('historyList');
+  const hint = document.getElementById('historyHint');
+  let rows = [];
+  try { rows = await window.api.history.list(200); }
+  catch(e){ console.error('[history]', e); }
+
+  list.innerHTML = '';
+  if(!rows.length){
+    list.innerHTML = '<li class="history-empty">まだ振り分けたファイルはありません。</li>';
+    hint.textContent = '';
+    return;
+  }
+  hint.textContent = 'クリックで場所を開く';
+
+  for(const h of rows){
+    const li = document.createElement('li');
+    const missing = !h.exists;
+    li.innerHTML = `
+      <button class="history-item${missing ? ' is-missing' : ''}"
+              data-role="reveal-history"
+              data-path="${escapeHtml(h.toPath || '')}"
+              ${missing ? 'disabled' : ''}
+              title="${escapeHtml(h.toPath || '')}">
+        <span>
+          <span class="history-name">${escapeHtml(h.fileName)}</span>
+          <span class="history-dest">${escapeHtml(h.subjectName)}${missing ? '・見つかりません' : ''}</span>
+        </span>
+        ${ICON_ARROW}
+      </button>`;
+    list.appendChild(li);
+  }
 }
 
 /** 科目一覧を読み直して左カラムを描く（起動時・セットアップ後の共通処理） */
@@ -1440,6 +1601,7 @@ async function loadWorkspace(){
   // 行き先が決まらないファイルは移動せず一覧に残し、ユーザーがドラッグで教える。
   renderFolders();
   await renderFiles();
+  await renderHistory();
 }
 
 /** スキャン状態の表示を更新する */
@@ -1460,8 +1622,14 @@ createBtn.onclick = async () => {
   createBtn.disabled = true;
   try {
     const picked = await window.api.dialog.chooseFolder();
-    const baseFolder = picked ? picked.path : '~/Documents/授業フォルダ';
-    await window.api.subjects.createMany(filledNames(), baseFolder);
+
+    // ★ キャンセルされたら何も作らず、セットアップ画面のまま待つ。
+    //   以前はここで既定の場所に勝手にフォルダを作ってメイン画面へ進んでいた。
+    //   ユーザーは「作らなかった」と思っているのに振り分けが走り、
+    //   あとからそのフォルダを消したときに中のファイルごと消える事故になっていた。
+    if(!picked) return;
+
+    await window.api.subjects.createMany(filledNames(), picked.path);
     await window.api.app.completeSetup();
 
     await loadWorkspace();
@@ -1593,7 +1761,7 @@ fileScroll.addEventListener('click', async e => {
 });
 
 fileScroll.addEventListener('click', e => {
-  if(e.target.closest('[data-role="delete-file"]')) return;
+  if(e.target.closest('button[data-role]')) return;
   const file = e.target.closest('.file');
   if(!file || file.classList.contains('is-sorted') || dragMoved) return;
   file.setAttribute('aria-selected', file.classList.toggle('is-selected'));
@@ -1607,11 +1775,40 @@ fileScroll.addEventListener('keydown', e => {
 });
 
 /* ============================================================
+   場所を開く：エクスプローラーでそのファイルを選択した状態で表示する
+   ============================================================ */
+async function revealPath(p){
+  if(!p) return;
+  try{
+    const r = await window.api.shell.showInFolder(p);
+    if(!r.ok) alert(r.error || '開けませんでした');
+  }catch(e){
+    alert('開けませんでした: ' + e.message);
+  }
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-role="reveal-file"],[data-role="reveal-history"]');
+  if(!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  revealPath(btn.dataset.path);
+});
+
+/* ファイル行はダブルクリックでも開ける */
+fileScroll.addEventListener('dblclick', e => {
+  const file = e.target.closest('.file');
+  if(!file) return;
+  const btn = file.querySelector('[data-role="reveal-file"]');
+  if(btn) revealPath(btn.dataset.path);
+});
+
+/* ============================================================
    ドラッグ中（フォルダへ落としたら window.api.queue.moveManually を呼ぶ）
    ============================================================ */
 let drag = null;
 fileScroll.addEventListener('pointerdown', e => {
-  if(e.target.closest('[data-role="delete-file"]')) return;
+  if(e.target.closest('button[data-role]')) return;
   const file = e.target.closest('.file');
   if(!file || file.classList.contains('is-sorted') || e.button !== 0) return;
   drag = { file, x:e.clientX, y:e.clientY, ghost:null, target:null };
@@ -2095,7 +2292,8 @@ document.addEventListener('keydown', e => {
 
 /* ============================================================
    スキャンのイベント購読
-   （常時監視をやめたので、届くのは起動時と「今すぐ確認」のときだけ）
+   （自動でファイルを移動するのは起動時と「今すぐ確認」のときだけ。
+     表示の追従は下の fs:changed が担当する）
    ============================================================ */
 window.api.on('scan:start', (payload) => {
   document.getElementById('scanLabel').textContent = '確認しています…';
@@ -2107,7 +2305,8 @@ window.api.on('scan:progress', (p) => {
 });
 
 window.api.on('scan:done', async (summary) => {
-  await renderFiles();
+  // 移動したファイルを飛ばして見せるので、この時点では一覧に残しておく
+  await renderFiles({ includeDone: true });
   await refreshScanStatus();
   updateHint();
 
@@ -2122,12 +2321,106 @@ window.api.on('scan:done', async (summary) => {
       ANIMS[animMode].duration() * ANIMS[animMode].landAt);
     await wait(reduce ? 0 : ANIMS[animMode].stagger);
   }
+
+  // アニメーションが終わったら、移動済みを一覧から外して履歴欄へ送る
+  await renderFiles();
+  await renderHistory();
+  updateHint();
 });
 
 window.api.on('file:unmatched', () => { updateHint(); });
 window.api.on('file:failed', (payload) => {
   console.warn('[file:failed]', payload);
 });
+
+/* ============================================================
+   エクスプローラーの変更に追従する
+
+   メインプロセスがフォルダを監視していて、追加・削除・移動・名前の変更が
+   あると fs:changed が飛んでくる。中身が本当に変わったときだけ描き直す。
+   （見た目が変わらない更新でスクロール位置や選択が飛ばないようにするため）
+   ============================================================ */
+const syncBtn = document.getElementById('syncBtn');
+let lastSyncSig = null;
+let syncBusy = false;
+
+/** いま画面を描き直すと操作の邪魔になる状況か */
+function isBusyInteracting(){
+  return !!document.querySelector('.file.is-dragging') || flightLayer.childElementCount > 0;
+}
+
+/** 同期結果から「表示に関わる部分」だけを取り出して文字列にする */
+function syncSignature(result){
+  const counts = result.counts || {};
+  return (result.subjects || [])
+    .map(s => [
+      s.id,
+      s.name,
+      s.folderPath || s.folder_path || '',
+      s.keyword || '',
+      counts[s.id] ?? 0
+    ].join('\u001f'))
+    .join('\u001e');
+}
+
+/** 同期結果を画面へ反映する */
+async function applySync(result, { force = false } = {}){
+  if(!result || !result.ok) return;
+
+  const sig = syncSignature(result);
+  const fileChanged = (result.addedFiles || 0) > 0 || (result.removedFiles || 0) > 0;
+  if(!force && sig === lastSyncSig && !fileChanged) return;
+
+  if(!force && isBusyInteracting()) return;
+  lastSyncSig = sig;
+
+  const subjectsChanged = (result.subjects || []).length !== FOLDERS.length
+    || (result.subjects || []).some((s, i) => FOLDERS[i]?.id !== s.id || FOLDERS[i]?.name !== s.name);
+
+  if(subjectsChanged){
+    await loadWorkspace();          // 中で renderFiles → refreshFolderCounts まで走る
+  }else{
+    await renderFiles();
+  }
+  await refreshFolderCounts(result.counts);
+  await renderHistory();
+  updateHint();
+
+  // フォルダごと消された科目があれば知らせる（黙って消えると不安なので）
+  if(result.removedSubjects?.length){
+    const names = result.removedSubjects.map(s => s.name).join('、');
+    watchHint.innerHTML = `フォルダが見つからなくなったので「${escapeHtml(names)}」を一覧から外しました。`;
+  }
+}
+
+window.api.on('fs:changed', (result) => { applySync(result); });
+
+/* 手動同期ボタン（回転アイコンで状態を出す） */
+syncBtn.innerHTML = ICON_SYNC;
+syncBtn.onclick = async () => {
+  if(syncBusy) return;
+  syncBusy = true;
+  syncBtn.classList.remove('is-done');
+  syncBtn.classList.add('is-busy');
+  syncBtn.title = '同期しています…';
+  try{
+    const result = await window.api.sync.now();
+    await applySync(result, { force: true });
+    syncBtn.classList.add('is-done');
+    syncBtn.title = '最新の状態です';
+    setTimeout(() => {
+      syncBtn.classList.remove('is-done');
+      syncBtn.title = 'エクスプローラーの今の状態に合わせ直します';
+    }, 1400);
+  }catch(e){
+    console.error('[sync]', e);
+    alert('同期に失敗しました: ' + e.message);
+    syncBtn.title = 'エクスプローラーの今の状態に合わせ直します';
+  }finally{
+    syncBusy = false;
+    syncBtn.classList.remove('is-busy');
+  }
+};
 
 </script>
 </body>
