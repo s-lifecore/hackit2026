@@ -10,7 +10,7 @@
     "start": "electron .",
     "dist": "electron-builder --win",
     "dist:portable": "electron-builder --win portable",
-    "test": "node test/classifier.test.js && node test/scan.test.js && node test/subjects.test.js && node test/sync.test.js && node test/setup-cancel.test.js && node test/watcher.test.js",
+    "test": "node test/classifier.test.js && node test/precision.test.js && node test/scan.test.js && node test/subjects.test.js && node test/sync.test.js && node test/setup-cancel.test.js && node test/watcher.test.js",
     "lint": "eslint . --no-error-on-unmatched-pattern"
   },
   "dependencies": {
