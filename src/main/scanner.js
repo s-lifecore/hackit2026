@@ -6,7 +6,6 @@
  *   ・判定できたファイルだけを科目フォルダへ移動する
  *   ・迷った／関係なさそうなファイルはダウンロードフォルダに置いたままにする
  */
-const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 
@@ -38,7 +37,7 @@ async function uniquePath(dir, fileName) {
   let candidate = path.join(dir, fileName);
   let i = 2;
   while (true) {
-    try { await fsp.access(candidate); } catch (_) { return candidate; }
+    try { await fsp.access(candidate); } catch { return candidate; }
     candidate = path.join(dir, `${base} (${i})${ext}`);
     i++;
   }
@@ -58,7 +57,7 @@ async function moveFile(from, to) {
 /** キャッシュ付きのテキスト抽出 */
 async function getText(store, file) {
   let st;
-  try { st = await fsp.stat(file); } catch (_) { return ''; }
+  try { st = await fsp.stat(file); } catch { return ''; }
   const key = Math.floor(st.mtimeMs);
   const cached = store.getCachedText(file, key, st.size);
   if (cached !== null && cached !== undefined) return cached;
@@ -181,6 +180,33 @@ async function runScan(ctx, trigger = 'manual') {
     return summary;
   }
 
+  const present = [];
+  for (const name of names) {
+    const full = path.join(folder, name);
+    let st;
+    try { st = await fsp.stat(full); } catch { continue; }
+    if (!isCandidate(name, st)) continue;
+    present.push({ name, full, size: st.size });
+
+    if (!store.findQueueBySource(full)) {
+      try {
+        store.insertQueue({
+          file_name: name,
+          source_path: full,
+          current_path: full,
+          size: st.size,
+          detected_at: new Date().toISOString()
+        });
+      } catch { /* 同時実行での重複挿入は無視してよい */ }
+    }
+  }
+
+  // 監視フォルダから消えた「未処理」項目はキューから外す（ユーザーが自分で動かした等）
+  const presentSet = new Set(present.map(p => p.full));
+  for (const q of store.listQueue()) {
+    if (q.status === 'waiting' && !presentSet.has(q.source_path)) store.deleteQueue(q.id);
+  }
+
   // --- 2. 未処理のものを判定して移動する ---
   const pending = store.listQueue().filter(q => q.status === 'waiting');
   summary.scanned = pending.length;
@@ -192,7 +218,7 @@ async function runScan(ctx, trigger = 'manual') {
 
     let content = '';
     try { content = await getText(store, q.source_path); }
-    catch (e) { /* 内容が読めなくてもファイル名だけで判定を続ける */ }
+    catch { /* 内容が読めなくてもファイル名だけで判定を続ける */ }
 
     const verdict = classify({ fileName: q.file_name, content }, model);
 

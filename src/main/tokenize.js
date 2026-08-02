@@ -26,7 +26,7 @@ function normalize(s) {
   return String(s || '')
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/[_\-–—.,()（）\[\]{}<>「」『』【】・:;!?"'`~@#$%^&*+=|\\/]+/g, ' ')
+    .replace(/[_\-–—.,()（）[\]{}<>「」『』【】・:;!?"'`~@#$%^&*+=|\\/]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
