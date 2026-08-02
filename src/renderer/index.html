@@ -1270,14 +1270,7 @@ input{ font:inherit; color:inherit; }
         <h2 class="panel-title">ファイル</h2>
         <span class="head-actions">
           <span class="rule-prefix" id="fileHint">ドラッグで手動振り分け</span>
-<<<<<<< HEAD
-          <button class="button button--quiet" id="resetBtn">元に戻す</button>
-
-
-
-=======
           <button class="button button--quiet" id="clearAllBtn" title="デバッグ用：一覧のファイルをまとめてごみ箱へ移動します" hidden>全部削除</button>
->>>>>>> 2ace96b3f9d69a22e0df1ad015f5539b5bf00386
         </span>
       </div>
       <div class="panel-body" id="fileScroll"></div>
@@ -1587,27 +1580,15 @@ function renderFolders(){
 }
 
 /** ファイル一覧を window.api.queue.list() から作り直す（date-headは検出日でまとめる） */
-/**
- * このアプリの起動中に移動したファイルの queueId。
- * 移動した直後は「取り消し線が付いた状態」で一覧に残し、何がどこへ行ったかを
- * その場で確認できるようにする。次回の起動ではこの集合が空になるので、
- * 一覧からは消えて左下の履歴欄だけに残る。
- */
-const sessionMoved = new Set();
-
-async function renderFiles(){
+async function renderFiles(opts){
+  const includeDone = !!(opts && opts.includeDone);
   const all = await window.api.queue.list();
-<<<<<<< HEAD
   // 振り分け済みのファイルは、今回のUI起動より前からすでに振り分け済みだったもの
   // （＝hiddenDoneIdsに入っているもの）だけを一覧から外す。「何がどこへ行ったか」は
   // 左下の履歴欄で確認できる。今回のセッション中に新しく振り分けたものは、
   // フォルダ監視の同期が来ても一覧に残しておき、次回アプリを起動したときに履歴欄だけに移す。
   // （移動アニメーションを見せている最中だけ includeDone で強制的に全件残す）
   const items = includeDone ? all : all.filter(it => it.status !== 'done' || !hiddenDoneIds.has(String(it.id)));
-=======
-  // 振り分け済みでも、今回の起動中に動かしたものは取り消し線付きで残す
-  const items = all.filter(it => it.status !== 'done' || sessionMoved.has(String(it.id)));
->>>>>>> 2ace96b3f9d69a22e0df1ad015f5539b5bf00386
 
   fileScroll.innerHTML = '';
   if(!items.length){
@@ -2058,7 +2039,6 @@ async function sortOneManual(file, folderEl, subjectId){
   playAnimation(file, folderEl, animMode);
   try {
     const r = await window.api.queue.moveManually(queueId, subjectId);
-    sessionMoved.add(String(queueId));
     setTimeout(() => land(file, folderEl, ANIMS[animMode].effect, r.subjectName), ANIMS[animMode].duration() * ANIMS[animMode].landAt);
     setTimeout(renderHistory, 700);
   } catch (e) {
@@ -2491,9 +2471,8 @@ window.api.on('scan:progress', (p) => {
 });
 
 window.api.on('scan:done', async (summary) => {
-  // 今回動かしたものを控えてから描き直す。取り消し線付きで一覧に残る
-  for(const r of (summary?.results || [])) if(r.matched) sessionMoved.add(String(r.queueId));
-  await renderFiles();
+  // 移動したファイルを飛ばして見せるので、この時点では一覧に残しておく
+  await renderFiles({ includeDone: true });
   await refreshScanStatus();
   updateHint();
 
@@ -2571,10 +2550,6 @@ async function applySync(result, { force = false } = {}){
   const fileChanged = (result.addedFiles || 0) > 0 || (result.removedFiles || 0) > 0;
   if(!force && sig === lastSyncSig && !fileChanged) return;
 
-<<<<<<< HEAD
-  if(!force && isBusyInteracting()) return;
-  lastSyncSig = sig;
-=======
   // ドラッグ中・移動アニメーション中は描き直さない。
   // ★ ここで lastSyncSig を更新してはいけない。更新すると「反映済み」と誤認され、
   //   ドラッグが終わっても次の変化が起きるまで古い表示のままになる。
@@ -2585,7 +2560,6 @@ async function applySync(result, { force = false } = {}){
 
   lastSyncSig = sig;
   syncPending = false;
->>>>>>> 2ace96b3f9d69a22e0df1ad015f5539b5bf00386
 
   const subjectsChanged = (result.subjects || []).length !== FOLDERS.length
     || (result.subjects || []).some((s, i) => FOLDERS[i]?.id !== s.id || FOLDERS[i]?.name !== s.name);

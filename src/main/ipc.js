@@ -348,13 +348,12 @@ function register(ctx) {
         } catch (e) {
           emit('file:failed', { fileName: h.file_name, error: '戻せませんでした: ' + e.message });
         }
-
       }
     } finally {
       if (ctx.watcher) setTimeout(() => ctx.watcher.resume(), 600);
     }
-    return undone;
-  }
+    return { ok: true, undone };
+  });
 
   /* ---------------- scan ---------------- */
   H('scan:getStatus', () => ({

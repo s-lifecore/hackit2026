@@ -52,16 +52,11 @@ function createWatcher(onChange) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-<<<<<<< HEAD
-      if (paused > 0) { dirty = true; return; }
-      try { onChange(reason); } catch (e) { console.error('[watcher]', e); }
-=======
       // タイマーを仕掛けてから発火するまでの間に pause() されている（あるいは
       // 別の実行が始まっている）ことがあるため、ここでもう一度確認する。
       // 確認しないと、アプリ自身がファイルを移動している最中に同期が割り込む。
       if (paused > 0 || running) { dirty = true; return; }
       run(reason);
->>>>>>> 2ace96b3f9d69a22e0df1ad015f5539b5bf00386
     }, DEBOUNCE_MS);
   }
 
