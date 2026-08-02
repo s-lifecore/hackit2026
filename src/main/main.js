@@ -12,6 +12,7 @@ const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell } = req
 const { createStore } = require('./store');
 const { register } = require('./ipc');
 const { runScan } = require('./scanner');
+const { createWatcher } = require('./watcher');
 
 const AUTOSTART = process.argv.includes('--autostart');
 
@@ -25,6 +26,8 @@ app.commandLine.appendSwitch('disk-cache-size', '0');
 let win = null;
 let tray = null;
 let store = null;
+let watcher = null;
+let ctx = null;
 const state = { scanning: false, bootScanDone: false };
 
 /* ---------- 多重起動を防ぐ ---------- */
@@ -72,6 +75,10 @@ function createWindow(show) {
 
   // 外部リンクは既定のブラウザで開く
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+
+  // エクスプローラーで操作してからアプリに戻ってきた瞬間に必ず最新にする。
+  // OS の通知を取りこぼしていても、ここで確実に追いつく。
+  win.on('focus', () => onFsChange('focus'));
 
   // × を押しても終了せずトレイに残す（次回のPC起動を待つ必要がないように）
   win.on('close', (e) => {
@@ -123,6 +130,8 @@ function setAutoLaunch(enabled) {
 async function triggerScan(trigger) {
   if (state.scanning) return null;
   state.scanning = true;
+  // 自分でファイルを動かしている間は監視の通知を止める（自分の操作で二重に更新しないため）
+  if (watcher) watcher.pause();
   try {
     const summary = await runScan({ store, emit }, trigger);
     if (trigger !== 'manual' && (summary.moved > 0 || summary.unmatched > 0) && Notification.isSupported()) {
@@ -139,16 +148,54 @@ async function triggerScan(trigger) {
     return null;
   } finally {
     state.scanning = false;
+    if (watcher) watcher.resume();
   }
 }
 
 /**
  * スキャン対象フォルダ（既定はダウンロードフォルダ）を設定する。
- * 常時監視（ファイル監視の常駐）は PC の負荷を上げるため行わない。
- * スキャンは「PC起動時に1回」と「全ファイル移動ボタン」のときだけ走る。
+ * ※ ここでの「監視」は表示を合わせるためのもので、勝手にファイルを移動はしない。
+ *   自動の振り分けスキャンは従来どおり「PC起動時に1回」と「今すぐ確認する」のときだけ走る。
  */
 function setScanFolder(folder) {
   store.set('scanFolder', folder);
+  refreshWatch();
+}
+
+/* ---------- エクスプローラーの変更に追従する ---------- */
+
+/**
+ * 監視するフォルダを決め直す。
+ * 親フォルダを再帰監視すれば、その下の科目フォルダの追加・削除・リネームも
+ * まとめて拾えるので、親の下にある科目フォルダは個別に監視しない。
+ */
+function refreshWatch() {
+  if (!watcher || !store) return;
+  const targets = [];
+  const base = store.get('baseFolder', null);
+  if (base) targets.push({ dir: base, recursive: true });
+
+  for (const s of store.listSubjects()) {
+    const inside = base && s.folder_path.startsWith(base + path.sep);
+    if (!inside) targets.push({ dir: s.folder_path, recursive: true });
+  }
+
+  // ダウンロードフォルダは中身だけ見れば十分（再帰にすると無関係な更新を拾いすぎる）
+  const scan = store.get('scanFolder', null);
+  if (scan) targets.push({ dir: scan, recursive: false });
+
+  watcher.setTargets(targets);
+}
+
+/** 変更を検知したら、アプリの状態を合わせ直して画面へ知らせる */
+async function onFsChange(reason) {
+  if (!ctx || typeof ctx.runSync !== 'function') return;
+  try {
+    const result = await ctx.runSync();
+    emit('fs:changed', Object.assign({ reason }, result));
+  } catch (e) {
+    console.error('[watch]', e);
+  }
 }
 
 /* ---------- 起動 ---------- */
@@ -159,7 +206,14 @@ app.whenReady().then(async () => {
   // （無ければ作り直す、ということはしない＝エクスプローラーでの削除を尊重する）
   state.removedSubjects = store.pruneMissingSubjects();
 
-  register({ store, emit, getWindow: () => win, state, setScanFolder });
+  ctx = { store, emit, getWindow: () => win, state, setScanFolder, refreshWatch, watcher: null };
+  register(ctx);
+
+  // エクスプローラー側の変更を監視して、表示を自動で合わせる
+  watcher = createWatcher(onFsChange);
+  ctx.watcher = watcher;
+  refreshWatch();
+  watcher.start();
 
   // 初回は OS のダウンロードフォルダをスキャン対象にしておく
   if (!store.get('scanFolder', null)) store.set('scanFolder', app.getPath('downloads'));
@@ -185,4 +239,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => { /* トレイに常駐するので終了しない */ });
 app.on('before-quit', () => { app.isQuitting = true; });
-app.on('quit', () => { if (store) store.close(); });
+app.on('quit', () => {
+  if (watcher) watcher.stop();
+  if (store) store.close();
+});
