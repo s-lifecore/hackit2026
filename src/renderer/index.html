@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ファイフリ</title>
+<title>FileFly</title>
 <!--
   ============================================================================
-  index.html — ファイフリ 画面本体
+  index.html — FileFly 画面本体
   ============================================================================
   UI（CSS・アニメーション関数 playFly / playPull / playDomino / playWarp /
   playCat / playDog / land / makeMascot 等）は UI担当作成のものをそのまま使用。
@@ -288,6 +288,16 @@ input{ font:inherit; color:inherit; }
 }
 .brand-name{ margin:0; font-size:17px; font-weight:700; letter-spacing:.04em; }
 .brand-sub{ margin:0; font-size:11px; color:var(--color-text-mute); letter-spacing:.06em; }
+.brand-types{
+  margin:var(--space-1) 0 0;
+  font-size:10.5px;
+  line-height:1.5;
+  color:var(--color-text-mute);
+  opacity:.85;
+}
+.brand-types b{ font-weight:700; color:var(--color-text); }
+.brand-types-sep{ margin:0 var(--space-2); opacity:.5; }
+@media (max-width:820px){ .brand-types{ display:none; } }
 .icon-button{
   width:36px; height:36px;
   display:grid; place-items:center;
@@ -624,7 +634,7 @@ input{ font:inherit; color:inherit; }
 }
 .file.is-sorted:hover{ background:var(--color-surface); }
 .file.is-sorted .file-icon{ color:var(--color-success); }
-.file.is-sorted .file-name{ color:var(--color-text-mute); }
+.file.is-sorted .file-name{ color:var(--color-text-mute); text-decoration:line-through; text-decoration-color:var(--color-border); }
 .file.is-sorted .badge{ display:none; }
 
 .sorted-to{ display:none; }
@@ -994,15 +1004,33 @@ input{ font:inherit; color:inherit; }
   animation:step-in var(--duration-base) var(--ease-out);
   overflow-y:auto;
 }
-/* 初回チュートリアル */
-.tutorial-list{ list-style:none; margin:0 0 var(--space-3); padding:0; display:grid; gap:var(--space-3); }
+/* チュートリアル */
+#tutorialModal .setup-card{ width:min(640px,100%); max-height:88vh; overflow-y:auto; }
+.tutorial-head{
+  margin:var(--space-5) 0 var(--space-2);
+  padding-bottom:var(--space-2);
+  border-bottom:1px solid var(--color-border);
+  font-size:13px;
+  font-weight:700;
+  letter-spacing:.04em;
+  color:var(--color-text);
+}
+.tutorial-head:first-of-type{ margin-top:var(--space-4); }
+.tutorial-note{
+  margin:0 0 var(--space-3);
+  font-size:12px;
+  line-height:1.75;
+  color:var(--color-text-mute);
+}
+.tutorial-note b{ color:var(--color-text); font-weight:700; }
+.tutorial-list{ list-style:none; margin:0 0 var(--space-3); padding:0; display:grid; gap:var(--space-2); }
 .tutorial-list li{
   padding:var(--space-3);
   border:1px solid var(--color-border);
   border-radius:var(--radius-sm);
   background:var(--color-sunken);
   font-size:12.5px;
-  line-height:1.6;
+  line-height:1.65;
 }
 .tutorial-list li b{ color:var(--color-accent); }
 
@@ -1095,9 +1123,9 @@ input{ font:inherit; color:inherit; }
 
     <!-- STEP 1：個数 -->
     <section class="step" id="step1">
-      <p class="eyebrow">はじめの設定 &nbsp;1 / 2</p>
-      <h2>フォルダをいくつ作りますか？</h2>
-      <p>授業の数だけ用意してください。名前は次の画面で入力します。</p>
+      <p class="eyebrow" id="step1Eyebrow">はじめの設定 &nbsp;1 / 2</p>
+      <h2 id="step1Title">フォルダをいくつ作りますか？</h2>
+      <p id="step1Lead">授業の数だけ用意してください。名前は次の画面で入力します。</p>
 
       <div class="stepper">
         <button class="stepper-button" id="minus" aria-label="1つ減らす">−</button>
@@ -1123,9 +1151,9 @@ input{ font:inherit; color:inherit; }
 
     <!-- STEP 2：名前 -->
     <section class="step" id="step2" hidden>
-      <p class="eyebrow">はじめの設定 &nbsp;2 / 2</p>
-      <h2>授業の名前を入力してください</h2>
-      <p>入力した名前が、そのままファイルの振り分けルールになります。</p>
+      <p class="eyebrow" id="step2Eyebrow">はじめの設定 &nbsp;2 / 2</p>
+      <h2 id="step2Title">授業の名前を入力してください</h2>
+      <p id="step2Lead">入力した名前が、そのままファイルの振り分けルールになります。</p>
 
       <ul class="name-list" id="nameList"></ul>
 
@@ -1151,11 +1179,23 @@ input{ font:inherit; color:inherit; }
         </svg>
       </div>
       <div>
-        <h1 class="brand-name">ファイフリ</h1>
+        <h1 class="brand-name">FileFly</h1>
         <p class="brand-sub">提出ファイルを名前のルールでフォルダへ</p>
+        <p class="brand-types">
+          中身まで読む形式：<b>PDF</b>・<b>Word</b>・<b>PowerPoint</b>・<b>Excel</b>・<b>テキスト</b>
+          <span class="brand-types-sep">/</span>
+          それ以外はファイル名だけで判断（.exe .dll .tmp .lnk などは最初から対象外）
+        </p>
       </div>
     </div>
     <span style="display:flex; align-items:center; gap:var(--space-2);">
+      <button class="icon-button" id="helpBtn" aria-label="使い方を見る" title="使い方を見る">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.4"/>
+          <path d="M12 17h.01"/>
+        </svg>
+      </button>
       <button class="button button--accent" id="ruleBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 7h10M18 7h2M4 17h2M10 17h10"/>
@@ -1164,10 +1204,10 @@ input{ font:inherit; color:inherit; }
         </svg>
         配置条件の変更
       </button>
-      <button class="icon-button" id="settingsBtn" aria-label="設定：フォルダを作り直す">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/>
+      <button class="icon-button" id="settingsBtn" aria-label="フォルダを追加する" title="フォルダを追加する">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/>
+          <path d="M12 12v5M9.5 14.5h5"/>
         </svg>
       </button>
     </span>
@@ -1230,10 +1270,7 @@ input{ font:inherit; color:inherit; }
         <h2 class="panel-title">ファイル</h2>
         <span class="head-actions">
           <span class="rule-prefix" id="fileHint">ドラッグで手動振り分け</span>
-          <button class="button button--quiet" id="resetBtn">元に戻す</button>
-
-
-
+          <button class="button button--quiet" id="clearAllBtn" title="デバッグ用：一覧のファイルをまとめてごみ箱へ移動します" hidden>全部削除</button>
         </span>
       </div>
       <div class="panel-body" id="fileScroll"></div>
@@ -1280,14 +1317,68 @@ input{ font:inherit; color:inherit; }
 <div class="modal" id="tutorialModal" hidden role="dialog" aria-modal="true" aria-labelledby="tutorialModalTitle">
   <div class="setup-card">
     <p class="eyebrow">はじめに</p>
-    <h2 id="tutorialModalTitle">ファイフリの使い方</h2>
-    <p>フォルダを作り終えたら、あとはこの4つを覚えておけば大丈夫です。</p>
+    <h2 id="tutorialModalTitle">FileFly の使い方</h2>
+    <p>ダウンロードフォルダに溜まった授業資料を、科目フォルダへ自動で振り分けます。<br>
+      右上の <b>?</b> からいつでもこの画面を開けます。</p>
+
+    <h3 class="tutorial-head">1. いつ振り分けが動くか</h3>
     <ul class="tutorial-list">
-      <li><b>自動で振り分け</b> — パソコンを起動すると、ダウンロードフォルダを1回だけ確認して自動で振り分けます。</li>
-      <li><b>迷ったら残す</b> — どの科目か分からないファイルは動かさず、ダウンロードフォルダに残ります。</li>
-      <li><b>ドラッグで教える</b> — 残ったファイルをフォルダへドラッグすると、次回から似た名前のファイルが自動で振り分けられるようになります。</li>
-      <li><b>削除もできます</b> — フォルダやファイルの「ごみ箱」アイコンから削除できます（完全削除ではなくごみ箱に移動します）。</li>
+      <li><b>パソコンの起動時</b> — 画面を出さずに1回だけ確認します。</li>
+      <li><b>アプリを開いたとき</b> — 前回から3分以上空いていれば確認します。</li>
+      <li><b>「全ファイル移動」</b> — 押すとその場で確認します。</li>
     </ul>
+    <p class="tutorial-note">動くのは科目フォルダを1つ以上作ったあとです。<br>
+      勝手に動き続けることはありません。上のバーに「前回 ○時○分 ○件を移動」と結果が出ます。</p>
+
+    <h3 class="tutorial-head">2. どうやって科目を見分けているか</h3>
+    <p class="tutorial-note">次のどれかに当てはまるときだけ移動します。当てはまらなければ動かしません。</p>
+    <ul class="tutorial-list">
+      <li><b>ファイル名に科目名がある</b> — 「コンピュータシステム基礎_第3回.pdf」のような形。最も確実です。</li>
+      <li><b>資料の先頭に科目名がある</b> — PDF や PowerPoint の表紙・1枚目に載っていれば読み取ります。</li>
+      <li><b>過去に教えた名前と似ている</b> — 手で振り分けた履歴から、あなたの授業の命名規則を覚えます。</li>
+    </ul>
+    <p class="tutorial-note">
+      <b>Word（.docx）は慎重に扱います。</b>自分で書くレポートには「課題」「考察」「参考文献」など
+      どの科目にも出てくる言葉ばかりで、科目名が書かれていないことが多いためです。
+      ファイル名か文書の先頭に科目名がはっきり無いかぎり動かしません。
+    </p>
+
+    <h3 class="tutorial-head">3. 見ているファイルの種類</h3>
+    <ul class="tutorial-list">
+      <li><b>中身まで読む</b> — PDF / Word / PowerPoint / Excel / テキスト</li>
+      <li><b>ファイル名だけで判断</b> — 画像や、上に当てはまらない形式</li>
+      <li><b>最初から対象外</b> — .exe .dll .msi .iso .lnk .tmp、ダウンロード中のファイル</li>
+    </ul>
+
+    <h3 class="tutorial-head">4. 迷ったファイルは自分で教える</h3>
+    <ul class="tutorial-list">
+      <li><b>ドラッグで振り分ける</b> — 残ったファイルを左のフォルダへドラッグすると移動します。</li>
+      <li><b>3回ほどで覚えます</b> — 同じ命名のファイルを何度か教えると、次から自動で振り分けられるようになります。</li>
+      <li><b>キーワードでも指定できる</b> — 「配置条件の変更」で科目ごとに言葉を決められます。
+        略称で配布される資料（PD入門 など）に有効です。</li>
+    </ul>
+
+    <h3 class="tutorial-head">5. 移動したファイルの追い方</h3>
+    <ul class="tutorial-list">
+      <li><b>その場では取り消し線</b> — 移動した直後は一覧に残り、取り消し線が付きます。</li>
+      <li><b>次回起動から履歴欄へ</b> — 一覧からは消え、左下の履歴欄に「ファイル名／移動先」で残ります。</li>
+      <li><b>クリックで場所を開く</b> — 履歴の項目や、ファイル右側の矢印ボタンからエクスプローラーで開けます。</li>
+    </ul>
+
+    <h3 class="tutorial-head">6. エクスプローラーとの関係</h3>
+    <ul class="tutorial-list">
+      <li><b>常に追いかけます</b> — エクスプローラーでファイルやフォルダを追加・削除・移動すると、画面もすぐ変わります。</li>
+      <li><b>フォルダを消したら科目も消えます</b> — アプリが勝手に作り直すことはありません。</li>
+      <li><b>ずれたら「同期」</b> — フォルダ欄の回転アイコンを押すと、その場で読み直します。</li>
+    </ul>
+
+    <h3 class="tutorial-head">7. そのほか</h3>
+    <ul class="tutorial-list">
+      <li><b>右上のフォルダ＋</b> — 科目フォルダをあとから追加できます。いまあるフォルダは消えません。</li>
+      <li><b>ごみ箱アイコン</b> — フォルダやファイルを削除できます。完全削除ではなくWindowsのごみ箱へ移動するので、戻せます。</li>
+      <li><b>閉じても常駐します</b> — ×で閉じてもタスクトレイに残ります。完全に終了するときは、トレイのアイコンを右クリックして「終了」を選んでください。</li>
+    </ul>
+
     <div class="setup-foot">
       <span></span>
       <button class="button button--primary button--lg" id="tutorialClose">はじめる</button>
@@ -1662,6 +1753,7 @@ createBtn.onclick = async () => {
     //   あとからそのフォルダを消したときに中のファイルごと消える事故になっていた。
     if(!picked) return;
 
+    const wasAdd = setupMode === 'add';
     await window.api.subjects.createMany(filledNames(), picked.path);
     await window.api.app.completeSetup();
 
@@ -1673,11 +1765,15 @@ createBtn.onclick = async () => {
     setTimeout(async () => {
       setup.hidden = true;
       setup.classList.remove('is-leaving');
-      // セットアップ直後に1回だけ確認する（次回からはPC起動時に自動で走る）
+      cancelSetup.hidden = true;
+      applySetupMode('initial');
+      // フォルダを作った直後に1回だけ確認する（次回からはPC起動時に自動で走る）
       await window.api.scan.runNow();
-      // 初回セットアップの直後に、初回だけチュートリアルを見せる
-      await maybeShowTutorial();
+      // チュートリアルは初回だけ。あとからの追加では出さない
+      if(!wasAdd) await maybeShowTutorial();
     }, ms('--duration-base'));
+  } catch (e) {
+    alert('フォルダを作れませんでした: ' + e.message);
   } finally {
     createBtn.disabled = false;
   }
@@ -1685,7 +1781,32 @@ createBtn.onclick = async () => {
 
 /* 設定ボタン → 作り直し（メイン画面からの再オープンなのでキャンセルできるようにする） */
 const cancelSetup = document.getElementById('cancelSetup');
+/**
+ * セットアップ画面の使い方は2通りある。
+ *   'initial' … 初回。まだ科目が1つも無い
+ *   'add'     … あとから追加。既存の科目はそのまま残る
+ * 「追加なのに作り直しに見える」と誤解されないよう、文言を切り替える。
+ */
+let setupMode = 'initial';
+
+function applySetupMode(mode){
+  setupMode = mode;
+  const add = mode === 'add';
+  document.getElementById('step1Eyebrow').textContent = add ? 'フォルダの追加　1 / 2' : 'はじめの設定  1 / 2';
+  document.getElementById('step1Title').textContent   = add ? 'フォルダをいくつ追加しますか？' : 'フォルダをいくつ作りますか？';
+  document.getElementById('step1Lead').textContent    = add
+    ? '追加したい授業の数を選んでください。いまあるフォルダはそのまま残ります。'
+    : '授業の数だけ用意してください。名前は次の画面で入力します。';
+  document.getElementById('step2Eyebrow').textContent = add ? 'フォルダの追加　2 / 2' : 'はじめの設定  2 / 2';
+  document.getElementById('step2Title').textContent   = add ? '追加する授業の名前を入力してください' : '授業の名前を入力してください';
+  document.getElementById('step2Lead').textContent    = add
+    ? '入力した名前でフォルダを追加します。いまあるフォルダと学習した内容は消えません。'
+    : '入力した名前が、そのままファイルの振り分けルールになります。';
+  createBtn.textContent = add ? 'フォルダを追加する' : 'フォルダを作る';
+}
+
 document.getElementById('settingsBtn').onclick = () => {
+  applySetupMode('add');
   setup.hidden = false;
   step2.hidden = true;
   step1.hidden = false;
@@ -1694,6 +1815,7 @@ document.getElementById('settingsBtn').onclick = () => {
 cancelSetup.onclick = () => {
   setup.hidden = true;
   cancelSetup.hidden = true;
+  applySetupMode('initial');
 };
 
 /* ============================================================
@@ -1702,6 +1824,12 @@ cancelSetup.onclick = () => {
 const tutorialModal = document.getElementById('tutorialModal');
 const tutorialClose = document.getElementById('tutorialClose');
 function openTutorial(){ tutorialModal.hidden = false; }
+
+// 初回は「はじめる」、あとから見返すときは「閉じる」にする
+document.getElementById('helpBtn').onclick = () => {
+  tutorialClose.textContent = '閉じる';
+  openTutorial();
+};
 tutorialClose.onclick = async () => {
   tutorialModal.hidden = true;
   await window.api.app.completeTutorial();
@@ -1900,6 +2028,11 @@ function endDrag(){
 fileScroll.addEventListener('pointerup', endDrag);
 fileScroll.addEventListener('pointercancel', endDrag);
 
+// ドラッグ中に見送った外部の変更を、操作が落ち着いてから取り込む
+// （アニメーションが終わるのを少し待つ）
+fileScroll.addEventListener('pointerup', () => setTimeout(flushPendingSync, 900));
+fileScroll.addEventListener('pointercancel', () => setTimeout(flushPendingSync, 900));
+
 /** ドラッグでの手動振り分け → window.api.queue.moveManually（＝学習にも回る） */
 async function sortOneManual(file, folderEl, subjectId){
   const queueId = file.dataset.queueId;
@@ -1907,6 +2040,7 @@ async function sortOneManual(file, folderEl, subjectId){
   try {
     const r = await window.api.queue.moveManually(queueId, subjectId);
     setTimeout(() => land(file, folderEl, ANIMS[animMode].effect, r.subjectName), ANIMS[animMode].duration() * ANIMS[animMode].landAt);
+    setTimeout(renderHistory, 700);
   } catch (e) {
     console.error(e);
     alert('振り分けに失敗しました: ' + e.message);
@@ -2191,14 +2325,11 @@ function updateTotal(){
   document.getElementById('totalCount').textContent = document.querySelectorAll('.file.is-sorted').length;
 }
 
-/* ---------- 元に戻す：window.api.history.undoLast を呼んで再取得 ---------- */
-document.getElementById('resetBtn').onclick = async () => {
-  const sortedCount = document.querySelectorAll('.file.is-sorted').length;
-  if(!sortedCount) return;
-  await window.api.history.undoLast(sortedCount);
-  await renderFiles();
-  updateHint();
-};
+/* 「元に戻す」ボタンは廃止した。
+   移動済みファイルを一覧から履歴欄へ移す仕様に変えたため、
+   「画面に見えている振り分け済みの件数だけ戻す」という動きが実態と合わなくなっていた。
+   戻したい場合はエクスプローラーで動かしてもらう（アプリ側が自動で追従する）。
+   window.api.history.undoLast() 自体は残してあるので、必要になれば呼び出しを足すだけでよい。 */
 
 /* ============================================================
    スキャン（常時監視は廃止。起動時に1回 ＋ 手動の「今すぐ確認」のみ）
@@ -2357,8 +2488,7 @@ window.api.on('scan:done', async (summary) => {
     await wait(reduce ? 0 : ANIMS[animMode].stagger);
   }
 
-  // アニメーションが終わったら、移動済みを一覧から外して履歴欄へ送る
-  await renderFiles();
+  // 一覧には取り消し線付きで残したまま、履歴欄にも反映する
   await renderHistory();
   updateHint();
 });
@@ -2378,6 +2508,20 @@ window.api.on('file:failed', (payload) => {
 const syncBtn = document.getElementById('syncBtn');
 let lastSyncSig = null;
 let syncBusy = false;
+let syncPending = false;   // 操作中で反映を見送った変更があるか
+
+/**
+ * ドラッグなどが終わったあとに、見送っていた変更を取り込む。
+ * 見送りっぱなしだと、次の変化か20秒ごとの点検まで表示が古いままになる。
+ */
+async function flushPendingSync(){
+  if(!syncPending || syncBusy || isBusyInteracting()) return;
+  syncPending = false;
+  try{
+    const result = await window.api.sync.now();
+    await applySync(result);
+  }catch(e){ console.error('[sync]', e); }
+}
 
 /** いま画面を描き直すと操作の邪魔になる状況か */
 function isBusyInteracting(){
@@ -2406,8 +2550,16 @@ async function applySync(result, { force = false } = {}){
   const fileChanged = (result.addedFiles || 0) > 0 || (result.removedFiles || 0) > 0;
   if(!force && sig === lastSyncSig && !fileChanged) return;
 
-  if(!force && isBusyInteracting()) return;
+  // ドラッグ中・移動アニメーション中は描き直さない。
+  // ★ ここで lastSyncSig を更新してはいけない。更新すると「反映済み」と誤認され、
+  //   ドラッグが終わっても次の変化が起きるまで古い表示のままになる。
+  if(!force && isBusyInteracting()){
+    syncPending = true;
+    return;
+  }
+
   lastSyncSig = sig;
+  syncPending = false;
 
   const subjectsChanged = (result.subjects || []).length !== FOLDERS.length
     || (result.subjects || []).some((s, i) => FOLDERS[i]?.id !== s.id || FOLDERS[i]?.name !== s.name);

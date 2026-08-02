@@ -1,6 +1,6 @@
 {
   "name": "filefly",
-  "productName": "ファイフリ",
+  "productName": "FileFly",
   "version": "1.0.0",
   "description": "ダウンロードフォルダのファイルを授業フォルダへ自動で振り分けるデスクトップアプリ",
   "main": "src/main/main.js",
@@ -10,7 +10,7 @@
     "start": "electron .",
     "dist": "electron-builder --win",
     "dist:portable": "electron-builder --win portable",
-    "test": "node test/classifier.test.js && node test/scan.test.js && node test/subjects.test.js",
+    "test": "node test/classifier.test.js && node test/precision.test.js && node test/scan.test.js && node test/subjects.test.js && node test/sync.test.js && node test/setup-cancel.test.js && node test/watcher.test.js",
     "lint": "eslint . --no-error-on-unmatched-pattern"
   },
   "dependencies": {
@@ -26,7 +26,7 @@
   },
   "build": {
     "appId": "jp.group1.filefly",
-    "productName": "ファイフリ",
+    "productName": "FileFly",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -63,10 +63,14 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "ファイフリ"
+      "createStartMenuShortcut": true,
+      "shortcutName": "FileFly",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     },
     "portable": {
-      "artifactName": "ファイフリ-portable-${version}.exe"
+      "artifactName": "FileFly-portable-${version}.exe"
     }
   }
 }

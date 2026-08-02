@@ -28,7 +28,7 @@ let tray = null;
 let store = null;
 let watcher = null;
 let ctx = null;
-const state = { scanning: false, bootScanDone: false };
+const state = { scanning: false, bootScanDone: false, lastScanAt: 0 };
 
 /* ---------- 多重起動を防ぐ ---------- */
 if (!app.requestSingleInstanceLock()) {
@@ -51,7 +51,7 @@ function createWindow(show) {
     minHeight: 600,
     show: false,
     backgroundColor: '#E8EBF2',
-    title: 'ファイフリ',
+    title: 'FileFly',
     icon: path.join(__dirname, '../../build/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
@@ -88,8 +88,10 @@ function createWindow(show) {
 }
 
 function showWindow() {
-  if (!win) createWindow(true);
-  else { win.show(); win.focus(); }
+  if (!win) { createWindow(true); return; }
+  win.show();
+  win.focus();
+  maybeScanOnShow();
 }
 
 /* ---------- トレイ ---------- */
@@ -98,7 +100,7 @@ function createTray() {
   let img = nativeImage.createFromPath(iconPath);
   if (img.isEmpty()) img = nativeImage.createEmpty();
   tray = new Tray(img);
-  tray.setToolTip('ファイフリ');
+  tray.setToolTip('FileFly');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '画面を開く', click: showWindow },
     { label: '今すぐ確認する', click: () => triggerScan('manual') },
@@ -138,18 +140,37 @@ async function triggerScan(trigger) {
       const body = summary.unmatched
         ? `${summary.moved}件を振り分けました。${summary.unmatched}件は判断できなかったのでそのままです。`
         : `${summary.moved}件を振り分けました。`;
-      const n = new Notification({ title: 'ファイフリ', body });
+      const n = new Notification({ title: 'FileFly', body });
       n.on('click', showWindow);
       n.show();
     }
     return summary;
   } catch (e) {
     console.error('[scan]', e);
+    // ここで黙って抜けると、画面が「確認しています…」のまま止まってしまう。
+    // 必ず終了を知らせる。
+    emit('scan:done', { scanned: 0, moved: 0, unmatched: 0, failed: 0, results: [], error: e.message });
+    emit('file:failed', { fileName: '確認処理', error: e.message });
     return null;
   } finally {
+    state.lastScanAt = Date.now();
     state.scanning = false;
     if (watcher) watcher.resume();
   }
+}
+
+/**
+ * 画面を開いたときのスキャン。
+ * トレイに常駐したままだと「起動時スキャン」は最初の1回しか走らないため、
+ * 画面を開き直したのに何も振り分けられない、という状態になっていた。
+ * ただし開くたびに走ると重いので、前回から一定時間空いているときだけにする。
+ */
+const RESCAN_AFTER_MS = 3 * 60 * 1000;
+function maybeScanOnShow() {
+  if (state.scanning) return;
+  if (!store || !store.get('setupCompleted', false) || !store.listSubjects().length) return;
+  if (state.lastScanAt && Date.now() - state.lastScanAt < RESCAN_AFTER_MS) return;
+  setTimeout(() => triggerScan('show'), 400);
 }
 
 /**

@@ -116,6 +116,36 @@ const call = (channel, ...args) => handlers.get(channel)({}, ...args);
     check('エラーになる', threw);
   }
 
+  console.log('\n[6] あとから追加しても、もとの科目は消えない');
+  {
+    const base = path.join(root, '授業フォルダ');
+    // 既存の科目に学習データを持たせておく（追加で消えないことを確認するため）
+    const before = store.listSubjects();
+    store.bumpToken(before[0].id, 'こうぎ', 'name', 3);
+
+    const added = await call('subjects:createMany', ['情報リテラシー'], base);
+
+    const after = store.listSubjects();
+    const names = after.map(s => s.name).sort();
+    check('科目が3件になる（2件＋追加1件）', after.length === 3, names.join('、'));
+    check('もとの「線形代数」が残っている', names.includes('線形代数'));
+    check('もとの「英語IIA」が残っている', names.includes('英語IIA'));
+    check('追加した「情報リテラシー」がある', names.includes('情報リテラシー'));
+    check('返り値は追加した1件だけ', added.length === 1 && added[0].name === '情報リテラシー',
+      JSON.stringify(added));
+    check('もとの科目のフォルダはそのまま', fs.existsSync(path.join(base, '線形代数')));
+    check('もとの科目の学習データも残っている',
+      store.listTokens().some(t => t.subject_id === before[0].id && t.token === 'こうぎ'));
+  }
+
+  console.log('\n[7] 同じ名前を追加しても増えない');
+  {
+    const base = path.join(root, '授業フォルダ');
+    await call('subjects:createMany', ['線形代数'], base);
+    check('科目は3件のまま', store.listSubjects().length === 3,
+      store.listSubjects().map(s => s.name).join('、'));
+  }
+
   Module._resolveFilename = origResolve;
   console.log(`\n結果: ${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
