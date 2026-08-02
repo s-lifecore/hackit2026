@@ -1,0 +1,2134 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ファイフリ</title>
+<!--
+  ============================================================================
+  index.html — ファイフリ 画面本体
+  ============================================================================
+  UI（CSS・アニメーション関数 playFly / playPull / playDomino / playWarp /
+  playCat / playDog / land / makeMascot 等）は UI担当作成のものをそのまま使用。
+  データはすべて preload.js が公開する window.api 経由でメインプロセスから取得する。
+    src/preload/preload.js  … window.api の定義
+    src/main/ipc.js         … 各チャンネルの実装
+    src/main/classifier.js  … 振り分け判定のロジック
+  ============================================================================
+-->
+<style>
+/* ============================================================
+   1. デザイントークン
+   ============================================================ */
+:root{
+  /* カラー */
+  --color-bg:        #E8EBF2;
+  --color-surface:   #FFFFFF;
+  --color-text:      #171B2B;
+  --color-accent:    #4B4DED;
+  --color-border:    #D3D8E6;
+  --color-success:   #12A87A;
+  --color-danger:    #E2453F;
+
+  /* 派生 */
+  --color-text-mute:   #6B7392;
+  --color-accent-weak: #ECEDFE;
+  --color-success-weak:#E4F6F0;
+  --color-danger-weak: #FDEBEA;
+  --color-warning:     #D9930F;
+  --color-warning-weak:#FBF0D8;
+  --color-sunken:      #F4F6FA;
+
+  /* 余白：4pxベース／8pxグリッド */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* 角丸 */
+  --radius-sm:   6px;
+  --radius-md:   12px;
+  --radius-full: 999px;
+
+  /* 影 */
+  --shadow-card: 0 1px 2px rgba(23,27,43,.06), 0 6px 16px -10px rgba(23,27,43,.22);
+  --shadow-drag: 0 20px 44px -14px rgba(23,27,43,.42), 0 2px 6px rgba(23,27,43,.12);
+
+  /* モーション */
+  --duration-fast: 150ms;
+  --duration-base: 300ms;
+  --duration-slow: 600ms;
+  --ease-out:    cubic-bezier(.2,.7,.3,1);
+  --ease-spring: cubic-bezier(.34,1.56,.64,1);
+
+  /* タイポグラフィ */
+  --font-ui: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+/* ============================================================
+   2. ベース
+   ============================================================ */
+*,*::before,*::after{ box-sizing:border-box; }
+body{
+  margin:0;
+  background:var(--color-bg);
+  color:var(--color-text);
+  font-family:var(--font-ui);
+  font-size:14px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+button{ font:inherit; color:inherit; cursor:pointer; }
+input{ font:inherit; color:inherit; }
+[hidden]{ display:none !important; }
+:focus-visible{
+  outline:2px solid var(--color-accent);
+  outline-offset:2px;
+  border-radius:var(--radius-sm);
+}
+
+/* ============================================================
+   3. 初期セットアップ
+   ============================================================ */
+.setup{
+  position:fixed;
+  inset:0;
+  z-index:80;
+  display:grid;
+  place-items:center;
+  padding:var(--space-5);
+  background:var(--color-bg);
+  overflow-y:auto;
+}
+.setup.is-leaving{ animation:setup-out var(--duration-base) var(--ease-out) forwards; }
+@keyframes setup-out{ to{ opacity:0; transform:scale(1.02); } }
+
+.setup-card{
+  width:min(520px,100%);
+  padding:var(--space-6);
+  background:var(--color-surface);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  box-shadow:var(--shadow-card);
+}
+.step{ animation:step-in var(--duration-base) var(--ease-out); }
+@keyframes step-in{ from{ opacity:0; transform:translateY(8px); } }
+
+.eyebrow{
+  margin:0 0 var(--space-2);
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:.14em;
+  color:var(--color-accent);
+}
+.setup h2{
+  margin:0 0 var(--space-2);
+  font-size:20px;
+  font-weight:700;
+  letter-spacing:.02em;
+}
+.setup p{
+  margin:0 0 var(--space-5);
+  font-size:13px;
+  color:var(--color-text-mute);
+}
+.setup-foot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--space-3);
+  margin-top:var(--space-5);
+}
+
+/* --- 個数のステッパー --- */
+.stepper{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:var(--space-5);
+  padding:var(--space-4) 0;
+}
+.stepper-button{
+  width:44px; height:44px;
+  display:grid; place-items:center;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-full);
+  background:var(--color-surface);
+  color:var(--color-text);
+  font-size:20px;
+  line-height:1;
+  transition:transform var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out),
+             color var(--duration-fast) var(--ease-out);
+}
+.stepper-button:hover{ border-color:var(--color-accent); color:var(--color-accent); }
+.stepper-button:active{ transform:scale(.9); }
+.stepper-button[disabled]{ opacity:.3; pointer-events:none; }
+.stepper-value{
+  min-width:88px;
+  text-align:center;
+  font-family:var(--font-mono);
+  font-size:52px;
+  font-weight:400;
+  line-height:1;
+  letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+}
+.stepper-value.is-bumped{ animation:count-pop var(--duration-base) var(--ease-spring); }
+.stepper-unit{
+  display:block;
+  font-family:var(--font-ui);
+  font-size:11px;
+  letter-spacing:.14em;
+  color:var(--color-text-mute);
+}
+
+/* --- 個数プレビュー --- */
+.preview{
+  display:flex;
+  flex-wrap:wrap;
+  gap:var(--space-2);
+  justify-content:center;
+  min-height:44px;
+  padding:var(--space-4);
+  background:var(--color-sunken);
+  border-radius:var(--radius-sm);
+}
+.preview-tile{
+  width:34px; height:26px;
+  display:grid; place-items:center;
+  border-radius:3px;
+  background:var(--color-surface);
+  box-shadow:0 0 0 1px var(--color-border);
+  color:var(--color-text-mute);
+  animation:tile-in var(--duration-base) var(--ease-spring) backwards;
+}
+.preview-tile--extra{
+  background:var(--color-accent-weak);
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--color-accent) 28%, transparent);
+  color:var(--color-accent);
+}
+@keyframes tile-in{ from{ opacity:0; transform:scale(.4) translateY(6px); } }
+
+.note{
+  display:flex;
+  gap:var(--space-2);
+  margin-top:var(--space-4);
+  font-size:12px;
+  color:var(--color-text-mute);
+}
+.note b{ color:var(--color-text); font-weight:600; }
+
+/* --- 名前入力 --- */
+.name-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  max-height:46vh;
+  overflow-y:auto;
+}
+.name-row{
+  display:grid;
+  grid-template-columns:28px 1fr;
+  align-items:center;
+  gap:var(--space-3);
+  margin-bottom:var(--space-2);
+  animation:step-in var(--duration-base) var(--ease-out) backwards;
+}
+.name-index{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--color-text-mute);
+  text-align:right;
+}
+.name-input{
+  width:100%;
+  padding:var(--space-3);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  background:var(--color-surface);
+  transition:border-color var(--duration-fast) var(--ease-out),
+             background var(--duration-fast) var(--ease-out);
+}
+.name-input::placeholder{ color:#A7AEC6; }
+.name-input:focus{ outline:none; border-color:var(--color-accent); background:var(--color-accent-weak); }
+.name-input.is-filled{ border-color:color-mix(in srgb, var(--color-success) 45%, var(--color-border)); }
+.progress{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--color-text-mute);
+}
+
+/* ============================================================
+   4. アプリ骨格 ／ 共通レイアウト
+   ============================================================ */
+.app{
+  max-width:1080px;
+  margin:0 auto;
+  padding:var(--space-5) var(--space-5) var(--space-6);
+}
+.app-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--space-4);
+  padding-bottom:var(--space-5);
+}
+.brand{ display:flex; align-items:center; gap:var(--space-3); }
+.brand-mark{
+  width:28px; height:28px;
+  border-radius:var(--radius-sm);
+  background:var(--color-accent);
+  display:grid; place-items:center;
+  color:#fff;
+  flex:none;
+}
+.brand-name{ margin:0; font-size:17px; font-weight:700; letter-spacing:.04em; }
+.brand-sub{ margin:0; font-size:11px; color:var(--color-text-mute); letter-spacing:.06em; }
+.icon-button{
+  width:36px; height:36px;
+  display:grid; place-items:center;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-full);
+  background:var(--color-surface);
+  color:var(--color-text-mute);
+  transition:color var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out),
+             transform var(--duration-fast) var(--ease-out);
+}
+.icon-button:hover{ color:var(--color-accent); border-color:var(--color-accent); }
+.icon-button:active{ transform:scale(.94); }
+
+.workspace{
+  display:grid;
+  grid-template-columns:280px 1fr;
+  gap:var(--space-5);
+  align-items:start;
+}
+.panel{
+  background:var(--color-surface);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  box-shadow:var(--shadow-card);
+  overflow:hidden;
+}
+.panel-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--space-3);
+  padding:var(--space-4);
+  border-bottom:1px solid var(--color-border);
+}
+.panel-title{
+  margin:0;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.14em;
+  color:var(--color-text-mute);
+}
+.panel-body{
+  max-height:min(62vh,540px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+
+/* ============================================================
+   5. フォルダ（左カラム）
+   ============================================================ */
+.folder-list{ list-style:none; margin:0; padding:var(--space-2); }
+.folder-list li{
+  display:flex;
+  align-items:center;
+  gap:var(--space-1);
+  animation:folder-in var(--duration-base) var(--ease-spring) backwards;
+  animation-delay:calc(var(--i) * 55ms);
+}
+@keyframes folder-in{
+  from{ opacity:0; transform:translateX(-14px) scale(.96); }
+}
+.folder-list li .folder{ flex:1 1 auto; min-width:0; }
+/* 削除ボタン（フォルダ・ファイル共通の小さなアイコンボタン） */
+.mini-delete{
+  display:grid; place-items:center;
+  flex:none;
+  width:28px; height:28px;
+  border:none;
+  border-radius:var(--radius-full);
+  background:transparent;
+  color:var(--color-text-mute);
+  opacity:.55;
+  transition:color var(--duration-fast) var(--ease-out),
+             background var(--duration-fast) var(--ease-out),
+             opacity var(--duration-fast) var(--ease-out),
+             transform var(--duration-fast) var(--ease-out);
+}
+.mini-delete:hover{ color:var(--color-danger); background:var(--color-danger-weak); opacity:1; }
+.mini-delete:active{ transform:scale(.92); }
+.folder{
+  position:relative;
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:center;
+  gap:var(--space-3);
+  width:100%;
+  padding:var(--space-3);
+  border:1px solid transparent;
+  border-radius:var(--radius-sm);
+  background:transparent;
+  text-align:left;
+  transition:background var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out),
+             transform var(--duration-base) var(--ease-spring);
+}
+.folder:hover{ background:var(--color-sunken); }
+/* クリックでエクスプローラーが開くことを示す（ホバー時だけ小さく出る） */
+.folder::after{
+  content:"開く";
+  position:absolute;
+  right:var(--space-3);
+  bottom:2px;
+  font-family:var(--font-mono);
+  font-size:9px;
+  letter-spacing:.1em;
+  color:var(--color-accent);
+  opacity:0;
+  transition:opacity var(--duration-fast) var(--ease-out);
+}
+.folder:hover::after{ opacity:1; }
+.is-dropzone .folder::after{ content:none; }
+.folder-icon{ color:var(--color-text-mute); flex:none; display:block;
+  transition:color var(--duration-fast) var(--ease-out); }
+.folder-name{ font-weight:600; letter-spacing:.02em; word-break:break-all; }
+.folder-rule{
+  display:block;
+  font-family:var(--font-mono);
+  font-size:10px;
+  letter-spacing:.06em;
+  color:var(--color-text-mute);
+  word-break:break-all;
+}
+.folder-count{
+  min-width:26px;
+  padding:0 var(--space-2);
+  border-radius:var(--radius-full);
+  background:var(--color-sunken);
+  font-family:var(--font-mono);
+  font-size:11px;
+  text-align:center;
+  color:var(--color-text-mute);
+  transition:background var(--duration-fast) var(--ease-out),
+             color var(--duration-fast) var(--ease-out);
+}
+.is-dropzone .folder{ border-color:var(--color-border); border-style:dashed; }
+.folder.is-target{
+  background:var(--color-accent-weak);
+  border-color:var(--color-accent);
+  border-style:solid;
+}
+.folder.is-target .folder-icon,
+.folder.is-target .folder-name{ color:var(--color-accent); }
+.folder.is-receiving .folder-count{
+  background:var(--color-accent);
+  color:#fff;
+  animation:count-pop var(--duration-base) var(--ease-spring);
+}
+/* 受け取りの演出（動きの種類ごとに切り替わる） */
+.folder.is-catch{ animation:folder-catch var(--duration-slow) var(--ease-spring); }
+.folder.is-door .folder-icon{
+  transform-origin:4px 50%;
+  animation:door-open var(--duration-slow) var(--ease-out);
+}
+@keyframes door-open{
+  0%  { transform:perspective(200px) rotateY(0deg); }
+  35% { transform:perspective(200px) rotateY(-62deg); }
+  100%{ transform:perspective(200px) rotateY(0deg); }
+}
+@keyframes folder-catch{
+  0%   { transform:scale(1); }
+  28%  { transform:scale(.965) translateX(2px); }
+  60%  { transform:scale(1.02); }
+  100% { transform:scale(1); }
+}
+@keyframes count-pop{
+  0%   { transform:scale(1); }
+  45%  { transform:scale(1.35); }
+  100% { transform:scale(1); }
+}
+
+/* ============================================================
+   6. ファイル（右カラム）
+   ============================================================ */
+.date-head{
+  position:sticky;
+  top:0;
+  z-index:2;
+  display:flex;
+  align-items:baseline;
+  gap:var(--space-3);
+  margin:0;
+  padding:var(--space-3) var(--space-4);
+  background:color-mix(in srgb, var(--color-surface) 88%, transparent);
+  backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--color-border);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.12em;
+  color:var(--color-text-mute);
+}
+.date-head span{ font-family:var(--font-mono); font-weight:400; letter-spacing:.04em; }
+
+.file-list{ list-style:none; margin:0; padding:var(--space-2) var(--space-2) var(--space-4); }
+.file{
+  position:relative;
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:center;
+  gap:var(--space-3);
+  padding:var(--space-3);
+  margin-bottom:var(--space-1);
+  border:1px solid transparent;
+  border-radius:var(--radius-sm);
+  background:var(--color-surface);
+  cursor:grab;
+  touch-action:none;
+  transition:background var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out),
+             opacity var(--duration-base) var(--ease-out),
+             transform var(--duration-base) var(--ease-spring);
+}
+.file:hover{ background:var(--color-sunken); }
+.file-icon{ color:var(--color-text-mute); flex:none; display:block; }
+.file-name{ font-weight:500; word-break:break-all;
+  transition:color var(--duration-fast) var(--ease-out); }
+.file-meta{
+  display:flex; align-items:center; gap:var(--space-2);
+  font-family:var(--font-mono); font-size:11px; color:var(--color-text-mute);
+}
+.file-side{ display:flex; align-items:center; gap:var(--space-2); }
+
+.badge{
+  display:inline-block;
+  padding:1px var(--space-2);
+  border-radius:var(--radius-full);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.06em;
+  white-space:nowrap;
+}
+.badge--due-today{ background:var(--color-danger); color:#fff; }
+.badge--due-soon{
+  background:var(--color-danger-weak);
+  color:var(--color-danger);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--color-danger) 26%, transparent);
+}
+.badge--new{
+  background:var(--color-accent-weak);
+  color:var(--color-accent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+.file.is-selected{ background:var(--color-accent-weak); border-color:var(--color-accent); }
+.file.is-selected .file-name{ color:var(--color-accent); }
+
+.file.is-dragging{
+  background:var(--color-sunken);
+  border-style:dashed;
+  border-color:var(--color-border);
+  opacity:.5;
+}
+.file.is-dragging > *{ visibility:hidden; }
+
+/* ---- 移動済み：うすい緑ではなく「移動済み」と大きく出す ---- */
+.file.is-sorted{
+  cursor:default;
+  background:var(--color-surface);
+  border-color:var(--color-border);
+}
+.file.is-sorted:hover{ background:var(--color-surface); }
+.file.is-sorted .file-icon{ color:var(--color-success); }
+.file.is-sorted .file-name{ color:var(--color-text-mute); text-decoration:line-through; text-decoration-color:var(--color-border); }
+.file.is-sorted .badge{ display:none; }
+
+.sorted-to{ display:none; }
+.file.is-sorted .sorted-to{
+  display:inline-flex;
+  align-items:center;
+  gap:var(--space-2);
+  padding:var(--space-2) var(--space-4);
+  border-radius:var(--radius-full);
+  background:var(--color-success);
+  color:#fff;
+  font-size:14px;
+  font-weight:700;
+  letter-spacing:.08em;
+  white-space:nowrap;
+  animation:sorted-pop var(--duration-base) var(--ease-spring);
+}
+.sorted-to svg{ width:15px; height:15px; }
+.sorted-to-name{
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.02em;
+  opacity:.9;
+  padding-left:var(--space-2);
+  border-left:1px solid rgba(255,255,255,.45);
+}
+.sorted-to-name:empty{ display:none; }
+@keyframes sorted-pop{
+  0%  { opacity:0; transform:scale(.7); }
+  60% { transform:scale(1.08); }
+  100%{ opacity:1; transform:scale(1); }
+}
+
+/* ============================================================
+   7. ボタン
+   ============================================================ */
+.button{
+  display:inline-flex;
+  align-items:center;
+  gap:var(--space-2);
+  padding:var(--space-2) var(--space-4);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-full);
+  background:var(--color-surface);
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.06em;
+  transition:transform var(--duration-fast) var(--ease-out),
+             background var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out),
+             opacity var(--duration-fast) var(--ease-out);
+}
+.button:hover{ border-color:var(--color-accent); color:var(--color-accent); }
+.button:active{ transform:scale(.96); }
+.button--primary{ background:var(--color-accent); border-color:var(--color-accent); color:#fff; }
+.button--primary:hover{ background:#3C3EE0; border-color:#3C3EE0; color:#fff; }
+.button--accent{
+  background:var(--color-accent-weak);
+  border-color:color-mix(in srgb, var(--color-accent) 40%, transparent);
+  color:var(--color-accent);
+}
+.button--accent:hover{
+  background:color-mix(in srgb, var(--color-accent) 16%, var(--color-surface));
+  border-color:var(--color-accent);
+  color:var(--color-accent);
+}
+.button--quiet{ border-color:transparent; background:transparent; color:var(--color-text-mute); }
+.button--lg{ padding:var(--space-3) var(--space-5); font-size:13px; }
+.button[disabled]{ opacity:.4; pointer-events:none; }
+.button .dot{ width:6px; height:6px; border-radius:var(--radius-full); background:currentColor; }
+.button.is-busy .dot{ animation:pulse var(--duration-slow) var(--ease-out) infinite; }
+@keyframes pulse{
+  0%,100%{ transform:scale(1); opacity:1; }
+  50%    { transform:scale(1.8); opacity:.35; }
+}
+
+/* ============================================================
+   8. 飛行レイヤー
+   ============================================================ */
+.flight-layer{ position:fixed; inset:0; pointer-events:none; z-index:50; }
+.flyer{
+  position:fixed;
+  display:grid;
+  grid-template-columns:auto 1fr;
+  align-items:center;
+  gap:var(--space-3);
+  padding:var(--space-3);
+  border-radius:var(--radius-sm);
+  background:var(--color-surface);
+  box-shadow:var(--shadow-drag);
+  font-size:14px;
+  font-weight:500;
+  will-change:transform, opacity;
+}
+.flyer .file-icon{ color:var(--color-accent); }
+.flyer--grabbed{ cursor:grabbing; transform:rotate(-1.6deg) scale(1.02); }
+
+/* ---- ワープ：出口に現れる光の線 ---- */
+.warp-blip{
+  position:fixed;
+  height:3px;
+  border-radius:var(--radius-full);
+  background:var(--color-accent);
+  will-change:transform, opacity;
+}
+
+/* ---- ひきよせ：フォルダから線が伸び、巻き取ってファイルを引き込む ---- */
+.pull-line{
+  position:fixed;
+  height:2px;
+  border-radius:var(--radius-full);
+  background:var(--color-accent);
+  transform-origin:left center;
+  will-change:transform;
+}
+
+/* ---- マスコット（ねこ／棒人間） ---- */
+.mascot{
+  position:fixed;
+  pointer-events:none;
+  transform-origin:50% 100%;
+  will-change:transform, opacity;
+}
+.mascot svg{ display:block; overflow:visible; }
+.mascot--cat{ color:var(--color-accent); }
+.mascot--dog{ color:#7A5A3A; }
+
+/* ---- 足（4本を対角でずらして振るだけ） ---- */
+.mascot{ --gait: calc(var(--duration-base) * 1.25); }
+.leg{
+  transform-box:fill-box;
+  transform-origin:50% 0;
+  animation:swing var(--gait) var(--ease-out) infinite alternate;
+}
+.leg--b{ animation-direction:alternate-reverse; }
+.leg--far{ opacity:.45; }
+@keyframes swing{
+  from{ transform:rotate(-24deg); }
+  to  { transform:rotate(24deg); }
+}
+
+/* ---- しっぽ・耳 ---- */
+.cat-tail{
+  transform-origin:42px 20px;
+  animation:tail-sway calc(var(--duration-base) * 1.5) var(--ease-out) infinite alternate;
+}
+@keyframes tail-sway{
+  from{ transform:rotate(-10deg); }
+  to  { transform:rotate(16deg); }
+}
+.dog-tail{
+  transform-origin:43px 21px;
+  animation:tail-wag calc(var(--duration-base) * .5) var(--ease-out) infinite alternate;
+}
+@keyframes tail-wag{
+  from{ transform:rotate(-20deg); }
+  to  { transform:rotate(18deg); }
+}
+.dog-ear{
+  transform-origin:16px 6px;
+  animation:ear-flop calc(var(--duration-base) * .95) var(--ease-out) infinite alternate;
+}
+@keyframes ear-flop{
+  from{ transform:rotate(-14deg); }
+  to  { transform:rotate(12deg); }
+}
+.cat-ear{
+  transform-box:fill-box;
+  transform-origin:50% 100%;
+  animation:ear-twitch calc(var(--duration-slow) * 3) var(--ease-out) infinite;
+}
+@keyframes ear-twitch{
+  0%,86%,100%{ transform:rotate(0deg); }
+  92%        { transform:rotate(-12deg); }
+}
+
+/* ---- ルール変更 ---- */
+.rule-list{ list-style:none; margin:0 0 var(--space-3); padding:0; max-height:44vh; overflow-y:auto; }
+.rule-row{
+  display:grid;
+  grid-template-columns:1fr 1.2fr;
+  align-items:center;
+  gap:var(--space-3);
+  margin-bottom:var(--space-2);
+}
+.rule-name{
+  display:flex;
+  align-items:center;
+  gap:var(--space-2);
+  font-weight:600;
+  word-break:break-all;
+}
+.rule-name svg{ flex:none; color:var(--color-text-mute); }
+.rule-fixed{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--color-text-mute);
+  padding:var(--space-3);
+}
+.rule-prefix{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--color-text-mute);
+}
+.folder-rule.is-changed{ animation:path-flash var(--duration-slow) var(--ease-out); }
+
+/* ---- 動きの切り替え ---- */
+.seg{
+  display:inline-flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:var(--space-1);
+  padding:var(--space-1);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-full);
+  background:var(--color-surface);
+}
+/* 選択肢ではなく「見出し」であることを明確にする。
+   （区切り線を入れないと "動き" という名前のアニメーションに見えてしまう） */
+.seg-label{
+  display:inline-flex;
+  align-items:center;
+  gap:var(--space-1);
+  padding:0 var(--space-3) 0 var(--space-2);
+  margin-right:var(--space-1);
+  border-right:1px solid var(--color-border);
+  font-family:var(--font-ui);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.16em;
+  color:var(--color-text-mute);
+  cursor:default;
+  user-select:none;
+}
+.seg-label::after{ content:"▸"; font-size:9px; opacity:.5; }
+.seg-item{
+  padding:var(--space-1) var(--space-3);
+  border:none;
+  border-radius:var(--radius-full);
+  background:transparent;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.04em;
+  color:var(--color-text-mute);
+  transition:background var(--duration-fast) var(--ease-out),
+             color var(--duration-fast) var(--ease-out),
+             transform var(--duration-fast) var(--ease-spring);
+}
+.seg-item:hover{ color:var(--color-text); }
+.seg-item[aria-checked="true"]{
+  background:var(--color-accent-weak);
+  color:var(--color-accent);
+}
+.seg-item:active{ transform:scale(.94); }
+
+/* ============================================================
+   8.5 監視バー（監視中 / 一時停止中）
+   ============================================================ */
+.watchbar{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:var(--space-2) var(--space-3);
+  padding:0 var(--space-1) var(--space-5);
+}
+.status-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:var(--space-2);
+  padding:var(--space-2) var(--space-4) var(--space-2) var(--space-3);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-full);
+  background:var(--color-surface);
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.06em;
+  transition:background var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out),
+             transform var(--duration-fast) var(--ease-out);
+}
+.status-chip:active{ transform:scale(.96); }
+.status-dot{
+  width:8px; height:8px;
+  border-radius:var(--radius-full);
+  background:var(--color-success);
+  flex:none;
+  transition:background var(--duration-base) var(--ease-out);
+  animation:watch-pulse calc(var(--duration-slow) * 3) var(--ease-out) infinite;
+}
+@keyframes watch-pulse{
+  0%  { box-shadow:0 0 0 0 color-mix(in srgb, var(--color-success) 55%, transparent); }
+  70% { box-shadow:0 0 0 7px transparent; }
+  100%{ box-shadow:0 0 0 0 transparent; }
+}
+/* 一時停止中：点が黄色になり、脈動が止まる */
+.status-chip[aria-pressed="true"]{
+  background:var(--color-warning-weak);
+  border-color:color-mix(in srgb, var(--color-warning) 42%, transparent);
+  color:#8A5D06;
+}
+.status-chip[aria-pressed="true"] .status-dot{
+  background:var(--color-warning);
+  animation:none;
+  box-shadow:none;
+}
+
+.path-button{
+  display:inline-flex;
+  align-items:center;
+  gap:var(--space-2);
+  padding:var(--space-2) var(--space-3);
+  border:1px solid transparent;
+  border-radius:var(--radius-full);
+  background:transparent;
+  font-family:var(--font-mono);
+  font-size:12px;
+  color:var(--color-text-mute);
+  transition:background var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out),
+             color var(--duration-fast) var(--ease-out);
+}
+.path-button:hover{ background:var(--color-surface); border-color:var(--color-border); color:var(--color-text); }
+.path-button .chevron{ opacity:.55; }
+.path-button.is-changed{ animation:path-flash var(--duration-slow) var(--ease-out); }
+@keyframes path-flash{
+  0%  { background:var(--color-accent-weak); color:var(--color-accent); }
+  100%{ background:transparent; }
+}
+.watch-hint{
+  flex-basis:100%;
+  margin:0;
+  font-size:11px;
+  color:var(--color-text-mute);
+}
+.watch-hint b{ color:var(--color-warning); font-weight:700; }
+
+/* 監視中に届いたファイル */
+.file.is-new{ animation:file-arrive var(--duration-slow) var(--ease-spring); }
+@keyframes file-arrive{
+  0%  { opacity:0; transform:translateY(-10px); background:var(--color-accent-weak); }
+  60% { background:var(--color-accent-weak); }
+  100%{ opacity:1; transform:translateY(0); }
+}
+
+/* ============================================================
+   8.6 フォルダ変更モーダル
+   ============================================================ */
+.modal{
+  position:fixed;
+  inset:0;
+  z-index:70;
+  display:grid;
+  place-items:center;
+  padding:var(--space-5);
+  background:color-mix(in srgb, var(--color-text) 34%, transparent);
+  animation:step-in var(--duration-base) var(--ease-out);
+  overflow-y:auto;
+}
+/* 初回チュートリアル */
+.tutorial-list{ list-style:none; margin:0 0 var(--space-3); padding:0; display:grid; gap:var(--space-3); }
+.tutorial-list li{
+  padding:var(--space-3);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  background:var(--color-sunken);
+  font-size:12.5px;
+  line-height:1.6;
+}
+.tutorial-list li b{ color:var(--color-accent); }
+
+.path-list{ list-style:none; margin:0 0 var(--space-3); padding:0; }
+.path-option{
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:center;
+  gap:var(--space-3);
+  width:100%;
+  margin-bottom:var(--space-1);
+  padding:var(--space-3);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  background:var(--color-surface);
+  text-align:left;
+  transition:background var(--duration-fast) var(--ease-out),
+             border-color var(--duration-fast) var(--ease-out);
+}
+.path-option:hover{ background:var(--color-sunken); }
+.path-option[aria-checked="true"]{ background:var(--color-accent-weak); border-color:var(--color-accent); }
+.path-option .path-text{ font-family:var(--font-mono); font-size:12px; word-break:break-all; }
+.path-option .path-sub{ display:block; font-family:var(--font-ui); font-size:11px; color:var(--color-text-mute); }
+.path-option .tick{ color:var(--color-accent); opacity:0; transition:opacity var(--duration-fast) var(--ease-out); }
+.path-option[aria-checked="true"] .tick{ opacity:1; }
+
+/* ============================================================
+   9. 状態サンプル
+   ============================================================ */
+.state-legend{
+  display:flex; flex-wrap:wrap;
+  gap:var(--space-2) var(--space-5);
+  padding-top:var(--space-5);
+  font-size:11px; color:var(--color-text-mute);
+}
+.state-legend dt{ font-family:var(--font-mono); letter-spacing:.06em; }
+.state-legend div{ display:flex; align-items:center; gap:var(--space-2); }
+.state-legend dd{ margin:0; }
+.swatch{
+  width:22px; height:14px;
+  border-radius:3px;
+  background:var(--color-surface);
+  box-shadow:0 0 0 1px var(--color-border);
+}
+.swatch--selected{ background:var(--color-accent-weak); box-shadow:0 0 0 1px var(--color-accent); }
+.swatch--dragging{ background:var(--color-sunken); box-shadow:0 0 0 1px var(--color-border); opacity:.5; }
+.swatch--sorted{ background:var(--color-success-weak); box-shadow:inset 2px 0 0 var(--color-success); }
+
+/* ============================================================
+   10. レスポンシブ
+   ============================================================ */
+@media (max-width:820px){
+  .app{ padding:var(--space-4); }
+  .setup-card{ padding:var(--space-5); }
+  .workspace{ grid-template-columns:1fr; }
+  .panel--folders .panel-body{ max-height:none; }
+  .folder-list{ display:flex; gap:var(--space-2); overflow-x:auto; padding:var(--space-3); }
+  .folder-list li{ flex:0 0 auto; }
+  .folder{ flex:0 0 auto; grid-template-columns:auto auto; grid-template-rows:auto auto; }
+  .folder-count{ grid-column:2; }
+}
+
+/* ============================================================
+   11. モーション削減
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:1ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:1ms !important;
+  }
+}
+
+/* ---- 実験版だけの追加スタイル：バックエンド接続状態バッジ ---- */
+.backend-flag{
+  position:fixed; right:var(--space-4); bottom:var(--space-4); z-index:90;
+  padding:var(--space-2) var(--space-3);
+  border-radius:var(--radius-full);
+  font-family:var(--font-mono); font-size:11px; font-weight:700;
+  background:var(--color-text); color:#fff; opacity:.82;
+}
+</style>
+</head>
+<body>
+
+<!-- ============ 初期セットアップ（2回目以降は boot() が出さない） ============ -->
+<div class="setup" id="setup" hidden>
+  <div class="setup-card">
+
+    <!-- STEP 1：個数 -->
+    <section class="step" id="step1">
+      <p class="eyebrow">はじめの設定 &nbsp;1 / 2</p>
+      <h2>フォルダをいくつ作りますか？</h2>
+      <p>授業の数だけ用意してください。名前は次の画面で入力します。</p>
+
+      <div class="stepper">
+        <button class="stepper-button" id="minus" aria-label="1つ減らす">−</button>
+        <div>
+          <div class="stepper-value" id="countValue" role="status" aria-live="polite">4</div>
+          <span class="stepper-unit">フォルダ</span>
+        </div>
+        <button class="stepper-button" id="plus" aria-label="1つ増やす">＋</button>
+      </div>
+
+      <div class="preview" id="preview" aria-hidden="true"></div>
+
+      <p class="note">
+        <span aria-hidden="true">＊</span>
+        <span>どのルールにも当てはまらないファイルは<b>動かさずにそのまま残します</b>。あとから手で振り分けると、次回から自動で振り分けられるようになります。</span>
+      </p>
+
+      <div class="setup-foot">
+        <button class="button button--quiet" id="cancelSetup" hidden>キャンセル</button>
+        <button class="button button--primary button--lg" id="toStep2">名前を入力する</button>
+      </div>
+    </section>
+
+    <!-- STEP 2：名前 -->
+    <section class="step" id="step2" hidden>
+      <p class="eyebrow">はじめの設定 &nbsp;2 / 2</p>
+      <h2>授業の名前を入力してください</h2>
+      <p>入力した名前が、そのままファイルの振り分けルールになります。</p>
+
+      <ul class="name-list" id="nameList"></ul>
+
+      <div class="setup-foot">
+        <button class="button button--quiet" id="backTo1">個数を選び直す</button>
+        <span style="display:flex; align-items:center; gap:var(--space-3);">
+          <span class="progress" id="progress">0 / 4</span>
+          <button class="button button--primary button--lg" id="createBtn" disabled>フォルダを作る</button>
+        </span>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ============ アプリ本体 ============ -->
+<div class="app">
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-name">ファイフリ</h1>
+        <p class="brand-sub">提出ファイルを名前のルールでフォルダへ</p>
+      </div>
+    </div>
+    <span style="display:flex; align-items:center; gap:var(--space-2);">
+      <button class="button button--accent" id="ruleBtn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 7h10M18 7h2M4 17h2M10 17h10"/>
+          <circle cx="16" cy="7" r="2.2"/>
+          <circle cx="8" cy="17" r="2.2"/>
+        </svg>
+        配置条件の変更
+      </button>
+      <button class="icon-button" id="settingsBtn" aria-label="設定：フォルダを作り直す">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/>
+        </svg>
+      </button>
+    </span>
+  </header>
+
+  <div class="watchbar">
+    <span class="status-chip" id="scanStatus">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="scanLabel">起動時に確認します</span>
+    </span>
+    <button class="button button--primary" id="moveAllBtn">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="moveAllLabel">全ファイル移動</span>
+    </button>
+    <button class="path-button" id="pathButton" aria-label="確認するフォルダを変更する">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/></svg>
+      <span id="pathLabel">~/Desktop/提出物</span>
+      <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+    <div class="seg" id="animSeg" role="radiogroup" aria-label="振り分けの動き">
+      <span class="seg-label" aria-hidden="true">動き</span>
+      <button class="seg-item" role="radio" aria-checked="true"  data-anim="fly">ふわっと</button>
+      <button class="seg-item" role="radio" aria-checked="false" data-anim="pull">ひきよせ</button>
+      <button class="seg-item" role="radio" aria-checked="false" data-anim="domino">ぱたん</button>
+      <button class="seg-item" role="radio" aria-checked="false" data-anim="warp">ワープ</button>
+      <button class="seg-item" role="radio" aria-checked="false" data-anim="cat">ねこ</button>
+      <button class="seg-item" role="radio" aria-checked="false" data-anim="dog">いぬ</button>
+    </div>
+    <p class="watch-hint" id="watchHint"></p>
+  </div>
+
+  <div class="workspace">
+    <section class="panel panel--folders" aria-label="フォルダ一覧">
+      <div class="panel-head">
+        <h2 class="panel-title">フォルダ</h2>
+        <span class="folder-count" id="totalCount">0</span>
+      </div>
+      <div class="panel-body">
+        <ul class="folder-list" id="folderList"></ul>
+      </div>
+    </section>
+
+    <section class="panel panel--files" aria-label="ファイル一覧">
+      <div class="panel-head">
+        <h2 class="panel-title">ファイル</h2>
+        <span style="display:flex; gap:var(--space-2); align-items:center;">
+          <span class="rule-prefix" id="fileHint">ドラッグで手動振り分け</span>
+          <button class="button button--quiet" id="resetBtn">元に戻す</button>
+        </span>
+      </div>
+      <div class="panel-body" id="fileScroll"></div>
+    </section>
+  </div>
+
+  <dl class="state-legend">
+    <div><dt>通常</dt><dd><span class="swatch"></span></dd></div>
+    <div><dt>選択中</dt><dd><span class="swatch swatch--selected"></span></dd></div>
+    <div><dt>ドラッグ中</dt><dd><span class="swatch swatch--dragging"></span></dd></div>
+    <div><dt>振り分け済み</dt><dd><span class="swatch swatch--sorted"></span></dd></div>
+  </dl>
+</div>
+
+<!-- ============ 監視フォルダの変更 ============ -->
+<div class="modal" id="pathModal" hidden role="dialog" aria-modal="true" aria-labelledby="pathModalTitle">
+  <div class="setup-card">
+    <p class="eyebrow">確認するフォルダ</p>
+    <h2 id="pathModalTitle">どのフォルダを確認しますか？</h2>
+    <p>パソコンを起動したときに、このフォルダの中身を1回だけ確認して振り分けます。「フォルダを選ぶ」でダイアログが開きます。</p>
+    <ul class="path-list" id="pathList"></ul>
+    <div class="setup-foot">
+      <button class="button button--quiet" id="pathCancel">キャンセル</button>
+      <button class="button button--primary button--lg" id="pathConfirm">フォルダを選ぶ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 振り分けルールの変更 ============ -->
+<div class="modal" id="ruleModal" hidden role="dialog" aria-modal="true" aria-labelledby="ruleModalTitle">
+  <div class="setup-card">
+    <p class="eyebrow">配置条件</p>
+    <h2 id="ruleModalTitle">どの言葉で振り分けますか？</h2>
+    <p>ファイル名にこの言葉が入っていれば、そのフォルダへ入ります。</p>
+    <ul class="rule-list" id="ruleList"></ul>
+    <div class="setup-foot">
+      <button class="button button--quiet" id="ruleCancel">キャンセル</button>
+      <button class="button button--primary button--lg" id="ruleSave">ルールを保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 初回だけ表示するチュートリアル ============ -->
+<div class="modal" id="tutorialModal" hidden role="dialog" aria-modal="true" aria-labelledby="tutorialModalTitle">
+  <div class="setup-card">
+    <p class="eyebrow">はじめに</p>
+    <h2 id="tutorialModalTitle">ファイフリの使い方</h2>
+    <p>フォルダを作り終えたら、あとはこの4つを覚えておけば大丈夫です。</p>
+    <ul class="tutorial-list">
+      <li><b>自動で振り分け</b> — パソコンを起動すると、ダウンロードフォルダを1回だけ確認して自動で振り分けます。</li>
+      <li><b>迷ったら残す</b> — どの科目か分からないファイルは動かさず、ダウンロードフォルダに残ります。</li>
+      <li><b>ドラッグで教える</b> — 残ったファイルをフォルダへドラッグすると、次回から似た名前のファイルが自動で振り分けられるようになります。</li>
+      <li><b>削除もできます</b> — フォルダやファイルの「ごみ箱」アイコンから削除できます（完全削除ではなくごみ箱に移動します）。</li>
+    </ul>
+    <div class="setup-foot">
+      <span></span>
+      <button class="button button--primary button--lg" id="tutorialClose">はじめる</button>
+    </div>
+  </div>
+</div>
+
+<div class="flight-layer" id="flightLayer"></div>
+<div class="backend-flag" id="backendFlag" hidden></div>
+
+<!--
+  Electronで実行する場合はこの行を削除してください（preload.js が window.api を提供するため）。
+  ブラウザで直接開いて実験する場合は、このダミー実装が window.api を用意します。
+-->
+
+<script>
+/* ---------- トークン参照 ---------- */
+const css = getComputedStyle(document.documentElement);
+const token = n => css.getPropertyValue(n).trim();
+const ms = n => parseFloat(token(n));
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wait = t => new Promise(r => setTimeout(r, t));
+
+const ICON_FILE = '<svg class="file-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/></svg>';
+const ICON_FOLDER = '<svg class="folder-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/></svg>';
+const ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
+function escapeHtml(s){
+  return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+/* バックエンドが本物かモックか、右下に小さく表示する（実験版だけの機能） */
+(function markBackend(){
+  const flag = document.getElementById('backendFlag');
+  const isMock = false;   // Electron版：preload.js が本物の window.api を提供する
+  flag.hidden = true;    // 実験用の目印。デバッグしたいときは false にする
+  flag.textContent = isMock ? 'mock-api（ダミー接続）' : 'preload（本番接続）';
+})();
+
+/* ============================================================
+   セットアップ：STEP 1（個数）
+   ============================================================ */
+const MIN = 1, MAX = 12, MAX_TILES = 12;
+let count = 4;
+
+const setup      = document.getElementById('setup');
+const step1      = document.getElementById('step1');
+const step2      = document.getElementById('step2');
+const countValue = document.getElementById('countValue');
+const preview    = document.getElementById('preview');
+
+function renderPreview(added){
+  preview.innerHTML = '';
+  for(let i = 0; i < Math.min(count, MAX_TILES); i++){
+    const tile = document.createElement('span');
+    tile.className = 'preview-tile';
+    tile.innerHTML = ICON_FOLDER.replace('width="18" height="18"','width="13" height="13"');
+    tile.style.animationDelay = added ? (i === count - 1 ? '0ms' : 'none') : (i * 26) + 'ms';
+    if(added && i !== count - 1) tile.style.animation = 'none';
+    preview.appendChild(tile);
+  }
+  const extra = document.createElement('span');
+  extra.className = 'preview-tile preview-tile--extra';
+  extra.textContent = '他';
+  extra.style.animation = 'none';
+  preview.appendChild(extra);
+}
+
+function setCount(next){
+  const clamped = Math.min(MAX, Math.max(MIN, next));
+  if(clamped === count) return;
+  const added = clamped > count;
+  count = clamped;
+  countValue.textContent = count;
+  countValue.classList.remove('is-bumped');
+  void countValue.offsetWidth;
+  countValue.classList.add('is-bumped');
+  document.getElementById('minus').disabled = count === MIN;
+  document.getElementById('plus').disabled  = count === MAX;
+  renderPreview(added);
+}
+document.getElementById('minus').onclick = () => setCount(count - 1);
+document.getElementById('plus').onclick  = () => setCount(count + 1);
+renderPreview(false);
+
+/* ============================================================
+   セットアップ：STEP 2（名前入力）
+   ============================================================ */
+const nameList   = document.getElementById('nameList');
+const progress   = document.getElementById('progress');
+const createBtn  = document.getElementById('createBtn');
+
+function buildNameInputs(){
+  nameList.innerHTML = '';
+  const samples = ['例）現代文','例）数学Ⅱ','例）英語表現','例）日本史B','例）物理基礎','例）化学基礎',
+                   '例）保健体育','例）情報Ⅰ','例）音楽Ⅰ','例）美術Ⅰ','例）家庭基礎','例）総合探究'];
+  for(let i = 0; i < count; i++){
+    const li = document.createElement('li');
+    li.className = 'name-row';
+    li.style.animationDelay = (i * 40) + 'ms';
+    li.innerHTML = `<span class="name-index">${String(i+1).padStart(2,'0')}</span>
+      <input class="name-input" type="text" maxlength="20"
+             placeholder="${samples[i % samples.length]}"
+             aria-label="${i+1}つ目のフォルダ名">`;
+    nameList.appendChild(li);
+  }
+  nameList.querySelectorAll('.name-input').forEach((input, i, all) => {
+    input.addEventListener('input', () => {
+      input.classList.toggle('is-filled', input.value.trim() !== '');
+      updateProgress();
+    });
+    input.addEventListener('keydown', e => {
+      if(e.key !== 'Enter') return;
+      e.preventDefault();
+      if(i < all.length - 1) all[i+1].focus();
+      else if(!createBtn.disabled) createBtn.click();
+    });
+  });
+  updateProgress();
+}
+function filledNames(){
+  return [...nameList.querySelectorAll('.name-input')].map(i => i.value.trim());
+}
+function updateProgress(){
+  const names = filledNames();
+  const done = names.filter(Boolean).length;
+  progress.textContent = `${done} / ${names.length}`;
+  createBtn.disabled = done !== names.length;
+}
+
+document.getElementById('toStep2').onclick = () => {
+  step1.hidden = true;
+  step2.hidden = false;
+  buildNameInputs();
+  nameList.querySelector('.name-input').focus();
+};
+document.getElementById('backTo1').onclick = () => {
+  step2.hidden = true;
+  step1.hidden = false;
+};
+
+/* ============================================================
+   フォルダとファイルの生成
+   ---- ここから下が「本物の window.api を呼ぶ」ように書き換えた部分 ----
+   ============================================================ */
+const folderList = document.getElementById('folderList');
+const fileScroll = document.getElementById('fileScroll');
+const flightLayer = document.getElementById('flightLayer');
+let FOLDERS = [];   // {id, name, folderPath, keyword, rule}
+
+function renderFolders(){
+  folderList.innerHTML = '';
+  FOLDERS.forEach((f, i) => {
+    const li = document.createElement('li');
+    li.style.setProperty('--i', i);
+    li.innerHTML = `
+      <button class="folder" data-folder-id="${f.id}">
+        ${ICON_FOLDER}
+        <span><span class="folder-name">${escapeHtml(f.name)}</span><span class="folder-rule">${escapeHtml(f.rule)}</span></span>
+        <span class="folder-count" data-count="0">0</span>
+      </button>
+      <button class="mini-delete" data-role="delete-folder" data-folder-id="${f.id}" aria-label="「${escapeHtml(f.name)}」を削除">
+        ${ICON_TRASH}
+      </button>`;
+    folderList.appendChild(li);
+  });
+}
+
+/** ファイル一覧を window.api.queue.list() から作り直す（date-headは検出日でまとめる） */
+async function renderFiles(){
+  const items = await window.api.queue.list();
+  fileScroll.innerHTML = '';
+  if(!items.length) return;
+
+  // 検出日（YYYY-MM-DD）でグルーピング
+  const groups = new Map();
+  for(const it of items){
+    const day = (it.detectedAt || it.detected_at || '').slice(0,10) || '不明';
+    if(!groups.has(day)) groups.set(day, []);
+    groups.get(day).push(it);
+  }
+  const days = [...groups.keys()].sort().reverse();
+
+  for(const day of days){
+    const chunk = groups.get(day);
+    const head = document.createElement('h3');
+    head.className = 'date-head';
+    head.innerHTML = `${escapeHtml(day)}<span class="date-count">${chunk.length}件</span>`;
+    fileScroll.appendChild(head);
+
+    const ul = document.createElement('ul');
+    ul.className = 'file-list';
+    ul.setAttribute('role','listbox');
+    ul.setAttribute('aria-multiselectable','true');
+
+    chunk.forEach(it => {
+      const sorted = it.status === 'done';
+      const subject = sorted ? FOLDERS.find(f => f.id === it.subjectId) : null;
+      const name = it.fileName || it.file_name;
+      const li = document.createElement('li');
+      li.className = 'file' + (sorted ? ' is-sorted' : '');
+      li.tabIndex = 0;
+      li.setAttribute('role','option');
+      li.setAttribute('aria-selected','false');
+      li.dataset.queueId = it.id;
+      li.dataset.folder = it.subjectId || '';
+      li.innerHTML = `
+        ${ICON_FILE}
+        <span>
+          <span class="file-name">${escapeHtml(name)}</span>
+          <span class="file-meta">検出 ${escapeHtml(day)}</span>
+        </span>
+        <span class="file-side">
+          <span class="sorted-to">${ICON_CHECK}<span class="sorted-to-name">${subject ? escapeHtml(subject.name) : ''}</span></span>
+          <button class="mini-delete" data-role="delete-file" data-queue-id="${it.id}" aria-label="「${escapeHtml(name)}」を削除">${ICON_TRASH}</button>
+        </span>`;
+      ul.appendChild(li);
+    });
+    fileScroll.appendChild(ul);
+  }
+  refreshFolderCounts();
+}
+
+/** フォルダごとの件数バッジを window.api.history.countBySubject() から反映 */
+async function refreshFolderCounts(){
+  const counts = await window.api.history.countBySubject();
+  let total = 0;
+  document.querySelectorAll('.folder-count[data-count]').forEach(el => {
+    const folderId = el.closest('.folder')?.dataset.folderId;
+    const n = counts[folderId] || 0;
+    el.dataset.count = n;
+    el.textContent = n;
+    total += n;
+  });
+  document.getElementById('totalCount').textContent = total;
+}
+
+/** 科目一覧を読み直して左カラムを描く（起動時・セットアップ後の共通処理） */
+async function loadWorkspace(){
+  const subjects = await window.api.subjects.list();
+  const keywords = await window.api.rules.getKeywords();
+  FOLDERS = subjects.map(s => {
+    const kw = keywords[s.id] ?? '';
+    return {
+      id: s.id,
+      name: s.name,
+      folderPath: s.folderPath || s.folder_path,
+      keyword: kw,
+      rule: kw ? `含む：${kw}` : 'ルールなし',
+    };
+  });
+  // 「未分類」フォルダは作らない方針にした。
+  // 行き先が決まらないファイルは移動せず一覧に残し、ユーザーがドラッグで教える。
+  renderFolders();
+  await renderFiles();
+}
+
+/** スキャン状態の表示を更新する */
+async function refreshScanStatus(){
+  const st = await window.api.scan.getStatus();
+  if(st.folder) document.getElementById('pathLabel').textContent = st.folder;
+  const label = document.getElementById('scanLabel');
+  const last = st.lastScan;
+  if(last && last.finished_at){
+    label.textContent = `前回 ${last.finished_at.slice(5,16)}　${last.moved}件を移動`;
+  } else {
+    label.textContent = 'パソコン起動時に確認します';
+  }
+}
+
+/* セットアップ完了：本物のフォルダを作る */
+createBtn.onclick = async () => {
+  createBtn.disabled = true;
+  try {
+    const picked = await window.api.dialog.chooseFolder();
+    const baseFolder = picked ? picked.path : '~/Documents/授業フォルダ';
+    await window.api.subjects.createMany(filledNames(), baseFolder);
+    await window.api.app.completeSetup();
+
+    await loadWorkspace();
+    await refreshScanStatus();
+
+    setup.classList.add('is-leaving');
+    setTimeout(async () => {
+      setup.hidden = true;
+      setup.classList.remove('is-leaving');
+      // セットアップ直後に1回だけ確認する（次回からはPC起動時に自動で走る）
+      await window.api.scan.runNow();
+      // 初回セットアップの直後に、初回だけチュートリアルを見せる
+      await maybeShowTutorial();
+    }, ms('--duration-base'));
+  } finally {
+    createBtn.disabled = false;
+  }
+};
+
+/* 設定ボタン → 作り直し（メイン画面からの再オープンなのでキャンセルできるようにする） */
+const cancelSetup = document.getElementById('cancelSetup');
+document.getElementById('settingsBtn').onclick = () => {
+  setup.hidden = false;
+  step2.hidden = true;
+  step1.hidden = false;
+  cancelSetup.hidden = false;
+};
+cancelSetup.onclick = () => {
+  setup.hidden = true;
+  cancelSetup.hidden = true;
+};
+
+/* ============================================================
+   初回だけのチュートリアル
+   ============================================================ */
+const tutorialModal = document.getElementById('tutorialModal');
+const tutorialClose = document.getElementById('tutorialClose');
+function openTutorial(){ tutorialModal.hidden = false; }
+tutorialClose.onclick = async () => {
+  tutorialModal.hidden = true;
+  await window.api.app.completeTutorial();
+};
+/** まだ見せていなければチュートリアルを開く（すでに見た場合は何もしない） */
+async function maybeShowTutorial(){
+  const state = await window.api.app.getState();
+  if(!state.tutorialShown) openTutorial();
+}
+
+/* ============================================================
+   起動処理：2回目以降はセットアップを飛ばしてメイン画面へ
+   ============================================================ */
+async function boot(){
+  const state = await window.api.app.getState();
+
+  // エクスプローラー側で削除された科目フォルダがあれば、起動時に1回だけ知らせる
+  if(state.removedSubjects && state.removedSubjects.length){
+    const names = state.removedSubjects.map(s => s.name).join('、');
+    alert(`次のフォルダはエクスプローラーで削除されていたため、アプリの一覧からも削除しました：\n${names}`);
+  }
+
+  if(state.setupCompleted || state.subjectCount > 0){
+    setup.hidden = true;            // ← 2回目以降は即メイン画面
+    await loadWorkspace();
+    await refreshScanStatus();
+    if(!state.tutorialShown) openTutorial();   // アップデート後の既存ユーザー等、初回だけ表示
+  } else {
+    setup.hidden = false;           // 初回だけセットアップを出す
+  }
+}
+boot();
+
+/* ============================================================
+   選択中
+   ============================================================ */
+let dragMoved = false;
+
+/* ---- 左カラムのフォルダをクリック → エクスプローラーで実際に開く ---- */
+folderList.addEventListener('click', async e => {
+  const folderEl = e.target.closest('.folder');
+  if(!folderEl) return;
+  const f = FOLDERS.find(x => String(x.id) === folderEl.dataset.folderId);
+  if(!f || !f.folderPath) return;   // 「未分類」は実体が無いので何もしない
+  const r = await window.api.shell.openFolder(f.folderPath);
+  if(!r.ok) alert('フォルダを開けませんでした: ' + r.error);
+});
+
+/* ---- 左カラムのフォルダを削除（中身ごとごみ箱へ） ---- */
+folderList.addEventListener('click', async e => {
+  const btn = e.target.closest('[data-role="delete-folder"]');
+  if(!btn) return;
+  const f = FOLDERS.find(x => String(x.id) === btn.dataset.folderId);
+  if(!f) return;
+  const ok = confirm(`「${f.name}」を削除しますか？\nフォルダの中身もまとめてごみ箱へ移動します。`);
+  if(!ok) return;
+  btn.disabled = true;
+  try {
+    const r = await window.api.subjects.remove(f.id);
+    if(r && r.ok){
+      await loadWorkspace();
+    }
+  } catch (err) {
+    alert('削除に失敗しました: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ---- ファイル一覧：削除ボタン（振り分け待ち・振り分け済みのどちらもごみ箱へ） ---- */
+fileScroll.addEventListener('click', async e => {
+  const btn = e.target.closest('[data-role="delete-file"]');
+  if(!btn) return;
+  e.stopPropagation();
+  const file = btn.closest('.file');
+  const name = file ? file.querySelector('.file-name').textContent : '';
+  const ok = confirm(`「${name}」を削除しますか？\nごみ箱へ移動します。`);
+  if(!ok) return;
+  btn.disabled = true;
+  try {
+    const r = await window.api.queue.removeFile(btn.dataset.queueId);
+    if(r && r.ok){
+      await renderFiles();
+      updateHint();
+    }
+  } catch (err) {
+    alert('削除に失敗しました: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+fileScroll.addEventListener('click', e => {
+  if(e.target.closest('[data-role="delete-file"]')) return;
+  const file = e.target.closest('.file');
+  if(!file || file.classList.contains('is-sorted') || dragMoved) return;
+  file.setAttribute('aria-selected', file.classList.toggle('is-selected'));
+});
+fileScroll.addEventListener('keydown', e => {
+  if(e.key !== 'Enter' && e.key !== ' ') return;
+  const file = e.target.closest('.file');
+  if(!file || file.classList.contains('is-sorted')) return;
+  e.preventDefault();
+  file.setAttribute('aria-selected', file.classList.toggle('is-selected'));
+});
+
+/* ============================================================
+   ドラッグ中（フォルダへ落としたら window.api.queue.moveManually を呼ぶ）
+   ============================================================ */
+let drag = null;
+fileScroll.addEventListener('pointerdown', e => {
+  if(e.target.closest('[data-role="delete-file"]')) return;
+  const file = e.target.closest('.file');
+  if(!file || file.classList.contains('is-sorted') || e.button !== 0) return;
+  drag = { file, x:e.clientX, y:e.clientY, ghost:null, target:null };
+  dragMoved = false;
+  file.setPointerCapture(e.pointerId);
+});
+fileScroll.addEventListener('pointermove', e => {
+  if(!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if(!drag.ghost){
+    if(Math.hypot(dx,dy) < 5) return;
+    dragMoved = true;
+    const r = drag.file.getBoundingClientRect();
+    drag.ghost = document.createElement('div');
+    drag.ghost.className = 'flyer flyer--grabbed';
+    drag.ghost.style.width = r.width + 'px';
+    drag.ghost.style.left = r.left + 'px';
+    drag.ghost.style.top = r.top + 'px';
+    drag.ghost.innerHTML = ICON_FILE + '<span>' + drag.file.querySelector('.file-name').textContent + '</span>';
+    flightLayer.appendChild(drag.ghost);
+    drag.file.classList.add('is-dragging');
+    document.body.classList.add('is-dropzone');
+  }
+  drag.ghost.style.transform = `translate(${dx}px, ${dy}px) rotate(-1.6deg) scale(1.02)`;
+  drag.ghost.style.visibility = 'hidden';
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  drag.ghost.style.visibility = '';
+  const folder = under && under.closest('.folder');
+  if(folder !== drag.target){
+    drag.target && drag.target.classList.remove('is-target');
+    folder && folder.classList.add('is-target');
+    drag.target = folder;
+  }
+});
+function endDrag(){
+  if(!drag) return;
+  const { file, ghost, target } = drag;
+  document.body.classList.remove('is-dropzone');
+  file.classList.remove('is-dragging');
+  if(target){
+    target.classList.remove('is-target');
+    ghost && ghost.remove();
+    const folderId = target.dataset.folderId;
+    if(folderId) sortOneManual(file, target, folderId);
+  } else if(ghost){
+    ghost.animate(
+      [{ transform:ghost.style.transform }, { transform:'translate(0,0) rotate(0) scale(1)' }],
+      { duration: ms('--duration-base'), easing: token('--ease-out') }
+    ).onfinish = () => ghost.remove();
+  }
+  drag = null;
+  setTimeout(() => dragMoved = false, 0);
+}
+fileScroll.addEventListener('pointerup', endDrag);
+fileScroll.addEventListener('pointercancel', endDrag);
+
+/** ドラッグでの手動振り分け → window.api.queue.moveManually（＝学習にも回る） */
+async function sortOneManual(file, folderEl, subjectId){
+  const queueId = file.dataset.queueId;
+  playAnimation(file, folderEl, animMode);
+  try {
+    const r = await window.api.queue.moveManually(queueId, subjectId);
+    setTimeout(() => land(file, folderEl, ANIMS[animMode].effect, r.subjectName), ANIMS[animMode].duration() * ANIMS[animMode].landAt);
+  } catch (e) {
+    console.error(e);
+    alert('振り分けに失敗しました: ' + e.message);
+  }
+}
+
+/* ============================================================
+   振り分け（アニメーション本体は元のUIから一切変更していません）
+   ============================================================ */
+/* 猫（左向き） */
+const CAT_SVG = `
+<svg width="52" height="38" viewBox="0 0 52 38" fill="none" aria-hidden="true">
+  <g fill="currentColor">
+    <rect class="leg leg--far leg--b" x="25.5" y="26" width="3.4" height="9" rx="1.7"/>
+    <rect class="leg leg--far" x="37.5" y="26" width="3.4" height="9" rx="1.7"/>
+  </g>
+  <path class="cat-tail" d="M42 20 C50.5 18 50.5 7 43.5 7.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+  <g fill="currentColor">
+    <ellipse cx="30" cy="21" rx="13" ry="8.5"/>
+    <circle cx="14" cy="15" r="8"/>
+    <path class="cat-ear" d="M7 10 L8 2.5 L14.5 8 Z"/>
+    <path class="cat-ear" d="M21.5 10 L20.5 2.5 L14.5 8 Z"/>
+    <rect class="leg" x="21" y="26" width="3.8" height="9" rx="1.9"/>
+    <rect class="leg leg--b" x="33" y="26" width="3.8" height="9" rx="1.9"/>
+  </g>
+  <circle cx="10" cy="14" r="1.4" fill="var(--color-surface)"/>
+</svg>`;
+
+/* 犬（左向き） */
+const DOG_SVG = `
+<svg width="56" height="42" viewBox="0 0 56 42" fill="none" aria-hidden="true">
+  <g fill="currentColor">
+    <rect class="leg leg--far leg--b" x="26.5" y="28" width="4.4" height="8.5" rx="2.2"/>
+    <rect class="leg leg--far" x="38.5" y="28" width="4.4" height="8.5" rx="2.2"/>
+  </g>
+  <path class="dog-tail" d="M43 21 C49 20 51 15 48.5 11 C47 8.6 44.5 9 44 11"
+        stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
+  <g fill="currentColor">
+    <ellipse cx="33" cy="23" rx="12" ry="8.6"/>
+    <circle cx="16" cy="16" r="9.6"/>
+    <ellipse cx="9.5" cy="20.5" rx="5.6" ry="4.2"/>
+    <rect class="leg" x="22" y="28" width="4.8" height="8.5" rx="2.4"/>
+    <rect class="leg leg--b" x="34" y="28" width="4.8" height="8.5" rx="2.4"/>
+  </g>
+  <ellipse cx="30" cy="29.2" rx="8" ry="2.2" fill="#B08A5E"/>
+  <ellipse cx="4.9" cy="19.2" rx="2.5" ry="2.1" fill="#3B2C1E"/>
+  <path class="dog-ear" fill="#5F462C" d="M15 5 C22.5 3.6 25 12 21 18.5 C16.4 16.6 13.8 10 15 5 Z"/>
+  <circle cx="12.6" cy="14.4" r="2.2" fill="#20242F"/>
+  <circle cx="13.4" cy="13.5" r="0.85" fill="#FFFFFF"/>
+  <ellipse cx="13.2" cy="21.6" rx="2.4" ry="1.5" fill="#E2938F" opacity=".5"/>
+</svg>`;
+
+/* 動きの切り替え */
+const ANIMS = {
+  fly:   { duration: () => ms('--duration-slow'),       landAt:.82, stagger:190, effect:'is-catch' },
+  pull:   { duration: () => ms('--duration-slow') * 1.1, landAt:.93, stagger:260, effect:'is-catch' },
+  domino: { duration: () => ms('--duration-slow') * 1.8, landAt:.88, stagger:340, effect:'is-catch' },
+  warp:   { duration: () => ms('--duration-slow') * .95, landAt:.72, stagger:170, effect:'is-catch' },
+  cat:   { duration: () => ms('--duration-slow') * 2.4, landAt:.80, stagger:520, effect:'is-door'  },
+  dog:   { duration: () => ms('--duration-slow') * 2.4, landAt:.80, stagger:520, effect:'is-door'  },
+};
+let animMode = 'fly';
+
+const animSeg = document.getElementById('animSeg');
+animSeg.addEventListener('click', e => {
+  const item = e.target.closest('.seg-item');
+  if(!item) return;
+  animMode = item.dataset.anim;
+  animSeg.querySelectorAll('.seg-item').forEach(b =>
+    b.setAttribute('aria-checked', String(b.dataset.anim === animMode)));
+});
+
+function makeMascot(kind, x, y, w, h){
+  const el = document.createElement('div');
+  el.className = 'mascot mascot--' + kind;
+  el.style.left = (x - w/2) + 'px';
+  el.style.top  = (y - h) + 'px';
+  el.innerHTML = kind === 'cat' ? CAT_SVG : DOG_SVG;
+  flightLayer.appendChild(el);
+  return el;
+}
+
+/** アニメーションだけを再生する（着地処理は呼び出し側が別途やる） */
+function playAnimation(file, folderEl, mode){
+  if(reduce) return;
+  const a = file.getBoundingClientRect();
+  const b = folderEl.getBoundingClientRect();
+  const duration = ANIMS[mode].duration();
+  if(mode === 'fly')    playFly(file, a, b, duration);
+  if(mode === 'pull')   playPull(file, a, b, duration);
+  if(mode === 'domino') playDomino(file, a, b, duration);
+  if(mode === 'warp')   playWarp(file, a, b, duration);
+  if(mode === 'cat')    playCat(a, b, duration);
+  if(mode === 'dog')    playDog(a, b, duration);
+}
+
+/* 1. ふわっと：カードが弧を描いて飛ぶ */
+function playFly(file, a, b, duration){
+  const flyer = document.createElement('div');
+  flyer.className = 'flyer';
+  flyer.style.width = a.width + 'px';
+  flyer.style.left = a.left + 'px';
+  flyer.style.top = a.top + 'px';
+  flyer.innerHTML = ICON_FILE + '<span>' + file.querySelector('.file-name').textContent + '</span>';
+  flightLayer.appendChild(flyer);
+
+  const dx = b.left + b.width/2 - (a.left + a.width/2);
+  const dy = b.top + b.height/2 - (a.top + a.height/2);
+  flyer.animate([
+    { transform:'translate(0,0) scale(1) rotate(0deg)', opacity:1 },
+    { transform:`translate(${dx*.45}px, ${dy*.45 - 46}px) scale(.8) rotate(-5deg)`, opacity:1, offset:.55 },
+    { transform:`translate(${dx}px, ${dy}px) scale(.24) rotate(2deg)`, opacity:0 }
+  ], { duration, easing: token('--ease-out'), fill:'forwards' })
+   .onfinish = () => flyer.remove();
+}
+
+/* 2. ひきよせ：フォルダが線を投げ、巻き取ってファイルを引き込む */
+function playPull(file, a, b, duration){
+  const ax = a.left + 22, ay = a.top + a.height/2;
+  const bx = b.left + b.width/2, by = b.top + b.height/2;
+  const dist = Math.hypot(bx - ax, by - ay);
+  const angle = Math.atan2(ay - by, ax - bx) * 180 / Math.PI;
+  const spin = `rotate(${angle}deg)`;
+
+  const line = document.createElement('div');
+  line.className = 'pull-line';
+  line.style.left = bx + 'px';
+  line.style.top  = (by - 1) + 'px';
+  line.style.width = dist + 'px';
+  flightLayer.appendChild(line);
+
+  line.animate([
+    { transform:`${spin} scaleX(0)` },
+    { transform:`${spin} scaleX(1)`, offset:.34, easing:'cubic-bezier(.1,.8,.3,1)' },
+    { transform:`${spin} scaleX(1)`, offset:.46 },
+    { transform:`${spin} scaleX(0)`, easing:'cubic-bezier(.5,0,.85,.4)' }
+  ], { duration, fill:'forwards' })
+   .onfinish = () => line.remove();
+
+  const flyer = document.createElement('div');
+  flyer.className = 'flyer';
+  flyer.style.width = a.width + 'px';
+  flyer.style.left = a.left + 'px';
+  flyer.style.top = a.top + 'px';
+  flyer.innerHTML = ICON_FILE + '<span>' + file.querySelector('.file-name').textContent + '</span>';
+  flightLayer.appendChild(flyer);
+
+  const dx = bx - (a.left + a.width/2);
+  const dy = by - (a.top + a.height/2);
+  const tug = dist ? 7 / dist : 0;
+  flyer.animate([
+    { transform:'translate(0,0) scale(1)', opacity:1 },
+    { transform:'translate(0,0) scale(1)', opacity:1, offset:.40 },
+    { transform:`translate(${dx*tug}px, ${dy*tug}px) scale(1)`, offset:.50, easing:'cubic-bezier(.5,0,.85,.4)' },
+    { transform:`translate(${dx}px, ${dy}px) scale(.22)`, opacity:0 }
+  ], { duration, fill:'forwards' })
+   .onfinish = () => flyer.remove();
+}
+
+function makeCardFlyer(file, a){
+  const flyer = document.createElement('div');
+  flyer.className = 'flyer';
+  flyer.style.width = a.width + 'px';
+  flyer.style.left = a.left + 'px';
+  flyer.style.top = a.top + 'px';
+  flyer.innerHTML = ICON_FILE + '<span>' + file.querySelector('.file-name').textContent + '</span>';
+  flightLayer.appendChild(flyer);
+  return flyer;
+}
+
+/* 3. ぱたん：左端を軸に倒れ、平たくなって滑り込む */
+function playDomino(file, a, b, duration){
+  const flyer = makeCardFlyer(file, a);
+  flyer.style.transformOrigin = 'left center';
+  const dx = b.left + b.width/2 - a.left;
+  const dy = b.top + b.height/2 - (a.top + a.height/2);
+  const fall = deg => `translate(0,0) perspective(700px) rotateY(${deg}deg)`;
+  flyer.animate([
+    { transform:fall(0), opacity:1 },
+    { transform:fall(-14), offset:.16, easing:'cubic-bezier(.7,0,.9,.4)' },
+    { transform:fall(-88), offset:.44 },
+    { transform:fall(-95), offset:.52, easing:token('--ease-out') },
+    { transform:fall(-90), offset:.58 },
+    { transform:`translate(${dx}px, ${dy}px) perspective(700px) rotateY(-90deg) scale(.5)`,
+      opacity:0, easing:token('--ease-out') }
+  ], { duration, fill:'forwards' })
+   .onfinish = () => flyer.remove();
+}
+
+/* 4. ワープ：その場で消えて、フォルダの上に現れる */
+function playWarp(file, a, b, duration){
+  const flyer = makeCardFlyer(file, a);
+  flyer.animate([
+    { transform:'scale(1,1)', opacity:1 },
+    { transform:'scale(1.04,.9)', opacity:1, offset:.12 },
+    { transform:'scale(1.1,.06)', opacity:1, offset:.30, easing:'cubic-bezier(.6,0,.9,.3)' },
+    { transform:'scale(.06,.04)', opacity:.9, offset:.42 },
+    { transform:'scale(0,.03)', opacity:0, offset:.48 },
+    { transform:'scale(0,.03)', opacity:0 }
+  ], { duration, fill:'forwards' })
+   .onfinish = () => flyer.remove();
+
+  const blip = document.createElement('div');
+  blip.className = 'warp-blip';
+  blip.style.width = '34px';
+  blip.style.left = (b.left + b.width/2 - 17) + 'px';
+  blip.style.top  = (b.top + b.height/2 - 1.5) + 'px';
+  flightLayer.appendChild(blip);
+
+  blip.animate([
+    { transform:'scaleX(0)', opacity:0 },
+    { transform:'scaleX(0)', opacity:0, offset:.54 },
+    { transform:'scaleX(1.4)', opacity:1, offset:.68, easing:token('--ease-out') },
+    { transform:'scaleX(.15)', opacity:.9, offset:.86 },
+    { transform:'scaleX(0)', opacity:0 }
+  ], { duration, fill:'forwards' })
+   .onfinish = () => blip.remove();
+}
+
+/* 5. ねこ：静かに歩いて、扉の向こうへ消える */
+function playCat(a, b, duration){
+  const sx = a.left + 34, sy = a.top + a.height/2 + 12;
+  const cat = makeMascot('cat', sx, sy, 52, 38);
+  const dx = b.left + b.width/2 - sx;
+  const dy = b.top + b.height/2 + 12 - sy;
+  const face = dx > 0 ? -1 : 1;
+  const walk = (p, lift) => `translate(${dx*p}px, ${dy*p - lift}px) scaleX(${face})`;
+  cat.animate([
+    { transform:walk(0,0), opacity:1 },
+    { transform:walk(.14,4), offset:.14 },
+    { transform:walk(.28,0), offset:.28 },
+    { transform:walk(.42,4), offset:.42 },
+    { transform:walk(.56,0), offset:.56 },
+    { transform:walk(.70,4), offset:.70 },
+    { transform:walk(.86,1), offset:.86, opacity:1 },
+    { transform:`translate(${dx}px, ${dy}px) scaleX(${face}) scale(.2)`, opacity:0 }
+  ], { duration, easing:'linear', fill:'forwards' })
+   .onfinish = () => cat.remove();
+}
+
+/* 6. いぬ：勢いよく駆け込んで、扉の向こうへ */
+function playDog(a, b, duration){
+  const sx = a.left + 36, sy = a.top + a.height/2 + 13;
+  const dog = makeMascot('dog', sx, sy, 56, 42);
+  const dx = b.left + b.width/2 - sx;
+  const dy = b.top + b.height/2 + 13 - sy;
+  const face = dx > 0 ? -1 : 1;
+  const run = (p, lift) => `translate(${dx*p}px, ${dy*p - lift}px) scaleX(${face})`;
+  dog.animate([
+    { transform:run(0,0), opacity:1 },
+    { transform:run(-.05,0), offset:.10 },
+    { transform:run(.18,5),  offset:.26 },
+    { transform:run(.32,0),  offset:.35 },
+    { transform:run(.50,5),  offset:.47 },
+    { transform:run(.64,0),  offset:.56 },
+    { transform:run(.84,6),  offset:.70 },
+    { transform:run(1.06,0), offset:.84 },
+    { transform:run(.97,2),  offset:.91 },
+    { transform:`translate(${dx}px, ${dy}px) scaleX(${face}) scale(.2)`, opacity:0 }
+  ], { duration, easing:'linear', fill:'forwards' })
+   .onfinish = () => dog.remove();
+}
+
+function land(file, folder, effect, subjectName){
+  const counter = folder.querySelector('.folder-count');
+  counter.textContent = (+counter.dataset.count + 1);
+  counter.dataset.count = counter.textContent;
+  const classes = ['is-receiving', effect || 'is-catch'];
+  folder.classList.remove('is-receiving','is-catch','is-door');
+  void folder.offsetWidth;
+  folder.classList.add(...classes);
+  setTimeout(() => folder.classList.remove(...classes), ms('--duration-slow'));
+
+  file.classList.remove('is-selected');
+  file.setAttribute('aria-selected','false');
+  file.classList.add('is-sorted');
+  file.querySelector('.sorted-to-name').textContent = subjectName || folder.querySelector('.folder-name').textContent;
+  updateTotal();
+  updateHint();
+}
+function updateTotal(){
+  document.getElementById('totalCount').textContent = document.querySelectorAll('.file.is-sorted').length;
+}
+
+/* ---------- 元に戻す：window.api.history.undoLast を呼んで再取得 ---------- */
+document.getElementById('resetBtn').onclick = async () => {
+  const sortedCount = document.querySelectorAll('.file.is-sorted').length;
+  if(!sortedCount) return;
+  await window.api.history.undoLast(sortedCount);
+  await renderFiles();
+  updateHint();
+};
+
+/* ============================================================
+   スキャン（常時監視は廃止。起動時に1回 ＋ 手動の「今すぐ確認」のみ）
+   ============================================================ */
+const watchHint    = document.getElementById('watchHint');
+const moveAllBtn   = document.getElementById('moveAllBtn');
+const moveAllLabel = document.getElementById('moveAllLabel');
+
+/**
+ * 「全ファイル移動」
+ * 対象フォルダを確認したうえで、振り分け先が決まったファイルを一斉に移動する。
+ * 結果は scan:done イベントで受け取り、順にアニメーションさせる。
+ */
+moveAllBtn.onclick = async () => {
+  moveAllBtn.classList.add('is-busy');
+  moveAllBtn.disabled = true;
+  moveAllLabel.textContent = '移動中';
+  try {
+    const summary = await window.api.scan.runNow();
+    if(summary && summary.moved === 0 && summary.unmatched === 0 && summary.scanned === 0){
+      alert('移動できるファイルがありませんでした。');
+    } else if(summary && summary.unmatched > 0){
+      // 行き先が決まらなかったものは残る。ドラッグで教えると次回から自動になる
+      updateHint();
+    }
+  } catch (e) {
+    alert('移動に失敗しました: ' + e.message);
+  } finally {
+    moveAllBtn.classList.remove('is-busy');
+    moveAllBtn.disabled = false;
+    moveAllLabel.textContent = '全ファイル移動';
+  }
+};
+
+function updateHint(){
+  const waiting = document.querySelectorAll('.file:not(.is-sorted)').length;
+  watchHint.innerHTML = waiting
+    ? `振り分け先が決まらなかったファイルが <b>${waiting}件</b> あります。フォルダへドラッグすると、次回から同じような名前のファイルは自動で振り分けられます。`
+    : '';
+}
+
+/* ============================================================
+   監視フォルダの変更：OSのダイアログを開く（window.api.dialog.chooseFolder）
+   ============================================================ */
+const pathModal   = document.getElementById('pathModal');
+const pathListEl  = document.getElementById('pathList');
+const pathButton  = document.getElementById('pathButton');
+const pathLabel   = document.getElementById('pathLabel');
+
+function openPathModal(){
+  pathListEl.innerHTML = `<li class="rule-fixed">「フォルダを選ぶ」を押すとダイアログが開きます</li>`;
+  pathModal.hidden = false;
+}
+function closePathModal(){ pathModal.hidden = true; pathButton.focus(); }
+
+pathButton.onclick = openPathModal;
+document.getElementById('pathCancel').onclick = closePathModal;
+document.getElementById('pathConfirm').onclick = async () => {
+  const picked = await window.api.dialog.chooseFolder();
+  if(picked){
+    await window.api.scan.setFolder(picked.path);
+    pathLabel.textContent = picked.path;
+    pathButton.classList.remove('is-changed');
+    void pathButton.offsetWidth;
+    pathButton.classList.add('is-changed');
+  }
+  closePathModal();
+};
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && !pathModal.hidden) closePathModal();
+});
+
+/* ============================================================
+   振り分けルールの変更：window.api.rules.getKeywords / setKeyword
+   ============================================================ */
+const ruleModal = document.getElementById('ruleModal');
+const ruleList  = document.getElementById('ruleList');
+
+function openRuleModal(){
+  ruleList.innerHTML = '';
+  FOLDERS.forEach(f => {
+    const li = document.createElement('li');
+    li.className = 'rule-row';
+    li.innerHTML = `<span class="rule-name">
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/></svg>
+           ${escapeHtml(f.name)}
+         </span>
+         <input class="name-input" type="text" maxlength="24"
+                data-folder-id="${f.id}" value="${escapeHtml(f.keyword)}"
+                placeholder="例）現代文" aria-label="${escapeHtml(f.name)}の振り分けキーワード">`;
+    ruleList.appendChild(li);
+  });
+  ruleModal.hidden = false;
+  const first = ruleList.querySelector('.name-input');
+  if(first){ first.focus(); first.select(); }
+}
+function closeRuleModal(){ ruleModal.hidden = true; }
+
+document.getElementById('ruleBtn').onclick = openRuleModal;
+document.getElementById('ruleCancel').onclick = closeRuleModal;
+document.getElementById('ruleSave').onclick = async () => {
+  for(const input of ruleList.querySelectorAll('.name-input')){
+    const f = FOLDERS.find(x => x.id === input.dataset.folderId);
+    if(!f) continue;
+    const next = input.value.trim();
+    if(next === f.keyword) continue;
+    await window.api.rules.setKeyword(f.id, next);
+    f.keyword = next;
+    f.rule = next ? `含む：${next}` : 'ルールなし';
+    const label = document.querySelector(`[data-folder-id="${f.id}"] .folder-rule`);
+    if(label){
+      label.textContent = f.rule;
+      label.classList.remove('is-changed');
+      void label.offsetWidth;
+      label.classList.add('is-changed');
+    }
+  }
+  closeRuleModal();
+};
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && !ruleModal.hidden) closeRuleModal();
+});
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && !tutorialModal.hidden) tutorialClose.onclick();
+});
+
+/* ============================================================
+   スキャンのイベント購読
+   （常時監視をやめたので、届くのは起動時と「今すぐ確認」のときだけ）
+   ============================================================ */
+window.api.on('scan:start', (payload) => {
+  document.getElementById('scanLabel').textContent = '確認しています…';
+  if(payload?.folder) pathLabel.textContent = payload.folder;
+});
+
+window.api.on('scan:progress', (p) => {
+  document.getElementById('scanLabel').textContent = `移動中 ${p.index} / ${p.total}`;
+});
+
+window.api.on('scan:done', async (summary) => {
+  await renderFiles();
+  await refreshScanStatus();
+  updateHint();
+
+  // 移動されたファイルを順にアニメーションさせる
+  for(const r of (summary?.results || [])){
+    if(!r.matched) continue;
+    const file = document.querySelector(`[data-queue-id="${r.queueId}"]`);
+    const folder = document.querySelector(`[data-folder-id="${r.subjectId}"]`);
+    if(!file || !folder) continue;
+    playAnimation(file, folder, animMode);
+    setTimeout(() => land(file, folder, ANIMS[animMode].effect, r.subjectName),
+      ANIMS[animMode].duration() * ANIMS[animMode].landAt);
+    await wait(reduce ? 0 : ANIMS[animMode].stagger);
+  }
+});
+
+window.api.on('file:unmatched', () => { updateHint(); });
+window.api.on('file:failed', (payload) => {
+  console.warn('[file:failed]', payload);
+});
+
+</script>
+</body>
+</html>

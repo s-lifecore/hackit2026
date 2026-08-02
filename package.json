@@ -1,0 +1,69 @@
+{
+  "name": "filefly",
+  "productName": "ファイフリ",
+  "version": "1.0.0",
+  "description": "ダウンロードフォルダのファイルを授業フォルダへ自動で振り分けるデスクトップアプリ",
+  "main": "src/main/main.js",
+  "author": "Group1",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable",
+    "test": "node test/classifier.test.js && node test/scan.test.js && node test/subjects.test.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "iconv-lite": "^0.6.3",
+    "pdfjs-dist": "3.11.174"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "jp.group1.filefly",
+    "productName": "ファイフリ",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "!**/*.map",
+      "!**/node_modules/pdfjs-dist/build/**",
+      "!**/node_modules/pdfjs-dist/es5/**",
+      "!**/node_modules/pdfjs-dist/web/**",
+      "!**/node_modules/pdfjs-dist/types/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "ファイフリ"
+    },
+    "portable": {
+      "artifactName": "ファイフリ-portable-${version}.exe"
+    }
+  }
+}
