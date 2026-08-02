@@ -1,10 +1,13 @@
 name: Code Freeze
 
-# ハッカソンのコードフリーズを自動実行する。
-# 2026-08-03 10:00 JST (= 2026-08-03 01:00 UTC) に、リポジトリの全ブランチを
-# ロック（読み取り専用）し、直接pushもPRのマージも一切できない状態にする。
-# 事前確認のため 2026-08-02 21:20 JST (= 2026-08-02 12:20 UTC) にも試験実行する
-# （このスケジュールは本番前日の確認用。確認が終わったら unlock で解除すること）。
+# 指定した時間帯だけ、リポジトリの全ブランチをロック（読み取り専用にし、
+# 直接pushもPRのマージも一切できない状態）する。
+#
+#   2026-08-02 21:50–22:00 JST … 動作確認用の試験ウィンドウ
+#   2026-08-03 10:00–20:00 JST … 本番のコードフリーズウィンドウ
+#
+# 開始時刻に lock、終了時刻に unlock がそれぞれ自動実行される
+# （github.event.schedule で、どのcronが発火したかを見て action を決めている）。
 #
 # 手動での動作確認・解除は Actions タブから「Run workflow」で action を
 # 選んで実行できる（lock / unlock）。
@@ -14,13 +17,21 @@ name: Code Freeze
 # リポジトリの「Settings → Secrets and variables → Actions」から
 # 「ADMIN_TOKEN」という名前で PAT（対象リポジトリの Administration: Read and write）を
 # 登録しておく必要がある。
+#
+# ⚠️ GitHub Actions の schedule トリガーは、指定時刻ちょうどではなく数分〜十数分の
+# 遅延が発生することがある（公式に明言されている既知の挙動）。ずれた場合に備えて、
+# 想定どおりロック/解除されているかは都度 Actions タブで確認すること。
 
 on:
   schedule:
-    # 2026-08-02 12:20 UTC = 2026-08-02 21:20 JST（試験実行）
-    - cron: '20 12 2 8 *'
-    # 2026-08-03 01:00 UTC = 2026-08-03 10:00 JST（本番）
+    # 2026-08-02 12:50 UTC = 2026-08-02 21:50 JST（試験・開始＝lock）
+    - cron: '50 12 2 8 *'
+    # 2026-08-02 13:00 UTC = 2026-08-02 22:00 JST（試験・終了＝unlock）
+    - cron: '0 13 2 8 *'
+    # 2026-08-03 01:00 UTC = 2026-08-03 10:00 JST（本番・開始＝lock）
     - cron: '0 1 3 8 *'
+    # 2026-08-03 11:00 UTC = 2026-08-03 20:00 JST（本番・終了＝unlock）
+    - cron: '0 11 3 8 *'
   workflow_dispatch:
     inputs:
       action:
@@ -41,7 +52,16 @@ jobs:
     steps:
       - name: Determine action
         id: vars
-        run: echo "action=${{ github.event.inputs.action || 'lock' }}" >> "$GITHUB_OUTPUT"
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          DISPATCH_ACTION: ${{ github.event.inputs.action }}
+        run: |
+          case "$SCHEDULE" in
+            "50 12 2 8 *"|"0 1 3 8 *") ACTION=lock ;;
+            "0 13 2 8 *"|"0 11 3 8 *") ACTION=unlock ;;
+            *) ACTION="${DISPATCH_ACTION:-lock}" ;;
+          esac
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
 
       - name: Lock or unlock all branches
         env:
