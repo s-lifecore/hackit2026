@@ -256,34 +256,6 @@ function register(ctx) {
     return { ok: true, trashed };
   });
 
-  /**
-   * デバッグ用：ファイル一覧（キュー）に出ているものをまとめて削除する。
-   * 振り分け待ち・振り分け済みを問わず対象にする。実ファイルは1件ずつごみ箱へ移動し、
-   * アプリ側の登録も削除する（1件の queue:removeFile を全件分まとめて行うイメージ）。
-   */
-  H('queue:clearAll', async () => {
-    const rows = store.listQueue();
-    if (ctx.watcher) ctx.watcher.pause();
-    let trashed = 0, failed = 0;
-    try {
-      for (const q of rows) {
-        const target = q.current_path || q.source_path;
-        try {
-          await fsp.access(target);
-          await shell.trashItem(target);
-          trashed++;
-        } catch (e) {
-          if (e && e.code !== 'ENOENT') failed++;
-          // ENOENT＝ファイルがそもそも無かった。アプリ側の登録だけ消せばよい。
-        }
-        store.deleteQueue(q.id);
-      }
-    } finally {
-      if (ctx.watcher) setTimeout(() => ctx.watcher.resume(), 600);
-    }
-    return { ok: true, removed: rows.length, trashed, failed };
-  });
-
   /* ---------------- history ---------------- */
   H('history:countBySubject', () => store.countBySubject());
 
