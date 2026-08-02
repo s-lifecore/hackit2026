@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import chokidar from 'chokidar';
 
 import { compileConfig, resolveDest } from './rules.js';
 import { resolveDestDir, isTempName, TEMP_EXT_RE } from './paths.js';
@@ -9,10 +8,16 @@ import { moveFile, withRetry, isStable } from './mover.js';
 import { Journal } from './journal.js';
 
 /**
- * 振り分け本体。Electron に載せるときはこのクラスを main プロセスで new して、
- * emit されるイベントを webContents.send で renderer に流すだけでよい。
+ * 振り分け本体（常時監視なし版）。
+ * =============================================================================
+ * 【方針転換】chokidarによる常時監視は廃止しました。
+ * ダウンロードは起動時にはとっくに終わっているため、`sortExisting()` による
+ * 一括処理（PC起動時スキャン等から呼ぶ）だけで十分という判断です。
+ * chokidar依存（watcher・awaitWriteFinish・add/changeイベント・多重処理防止の
+ * inFlight/queue直列化）はまるごと不要になったため削除しています。
  *
- * events: 'moved' | 'skipped' | 'failed' | 'ready' | 'log'
+ * events: 'moved' | 'skipped' | 'failed' | 'log'
+ * =============================================================================
  */
 export class Sorter extends EventEmitter {
   constructor(config, { dryRun = false, journalPath } = {}) {
@@ -22,68 +27,10 @@ export class Sorter extends EventEmitter {
     this.watchDir = path.resolve(config.watchDir);
     this.dryRun = dryRun;
     this.journal = journalPath ? new Journal(journalPath) : null;
-
-    this.watcher = null;
-    this.inFlight = new Set(); // 同一パスの多重処理を防ぐ
-    this.queue = Promise.resolve(); // 直列化。並列だと採番が競合する
     this.stats = { moved: 0, skipped: 0, errors: 0 };
   }
 
-  async start() {
-    await fs.access(this.watchDir); // 無ければここで落として原因を明示する
-
-    const s = this.config.settings;
-    this.watcher = chokidar.watch(this.watchDir, {
-      // 直下のみ。振り分け先サブフォルダを見ない = 無限ループが原理的に起きない
-      depth: 0,
-      ignoreInitial: true, // 起動時の既存ファイルは触らない（整理は `once` で明示的に）
-      awaitWriteFinish: {
-        stabilityThreshold: s.stabilityThreshold,
-        pollInterval: s.pollInterval,
-      },
-      // chokidar v4+ は glob 不可。関数で弾く
-      ignored: (p, stats) => {
-        if (p === this.watchDir) return false;
-        if (stats?.isDirectory()) return true;
-        return isTempName(path.basename(p));
-      },
-    });
-
-    this.watcher
-      .on('add', (p) => this.enqueue(p))
-      // change も拾う。chokidar の atomic 判定により、
-      // 「振り分け直後に同名を再ダウンロード」すると unlink+add が change に化ける。
-      // 二重処理は inFlight と「移動後は元パスが消える」ことで防げる。
-      .on('change', (p) => this.enqueue(p))
-      .on('error', (e) => {
-        this.stats.errors++;
-        this.emit('failed', e);
-      })
-      .on('ready', () => this.emit('ready', { watchDir: this.watchDir, dryRun: this.dryRun }));
-
-    return this;
-  }
-
-  async stop() {
-    await this.watcher?.close();
-    await this.queue; // 処理中のものを取りこぼさない
-    this.watcher = null;
-  }
-
-  enqueue(filePath) {
-    if (this.inFlight.has(filePath)) return;
-    this.inFlight.add(filePath);
-    this.queue = this.queue
-      .then(() => this.handle(filePath))
-      .catch((e) => {
-        this.stats.errors++;
-        this.emit('failed', e);
-      })
-      .finally(() => this.inFlight.delete(filePath));
-    return this.queue;
-  }
-
-  /** 1 ファイルを処理する。既存ファイルの一括整理（once）からも呼ぶ。 */
+  /** 1 ファイルを処理する。既存ファイルの一括整理（sortExisting）から呼ぶ。 */
   async handle(filePath) {
     const name = path.basename(filePath);
 
@@ -146,8 +93,9 @@ export class Sorter extends EventEmitter {
     return rec;
   }
 
-  /** 既存ファイルの一括整理。監視とは独立に、ユーザーが明示的に叩く用。 */
+  /** 既存ファイルの一括整理。ユーザーが明示的に叩く／起動時スキャンから呼ぶ用。 */
   async sortExisting() {
+    await fs.access(this.watchDir); // 無ければここで落として原因を明示する
     const entries = await fs.readdir(this.watchDir, { withFileTypes: true });
     const results = [];
     for (const e of entries) {
