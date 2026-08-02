@@ -15,6 +15,13 @@ const { runScan } = require('./scanner');
 
 const AUTOSTART = process.argv.includes('--autostart');
 
+// GPUシェーダーキャッシュの書き込みに失敗する環境（フォルダを移動した直後、
+// クラウド同期フォルダ内で実行している等）があり、そのまま起動すると初回描画が
+// 乱れることがある。ディスクキャッシュを使わない設定にして安定させる。
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+app.commandLine.appendSwitch('disable-gpu-program-cache');
+app.commandLine.appendSwitch('disk-cache-size', '0');
+
 let win = null;
 let tray = null;
 let store = null;
@@ -55,7 +62,13 @@ function createWindow(show) {
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  win.once('ready-to-show', () => { if (show) win.show(); });
+  win.once('ready-to-show', () => {
+    if (!show) return;
+    win.show();
+    // GPUキャッシュの書き込み失敗などで初回描画が乱れることがあるため、
+    // 表示直後にもう一度リサイズと同じ効果（強制再描画）をかけて安定させる。
+    setTimeout(() => { if (win && !win.isDestroyed()) win.webContents.invalidate(); }, 150);
+  });
 
   // 外部リンクは既定のブラウザで開く
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
