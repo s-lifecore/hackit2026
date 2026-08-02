@@ -91,7 +91,7 @@
           out.push(s);
         }
         // デモ用にサンプルファイルを何件か投入
-        state.subjects.forEach((s, i) => {
+        state.subjects.forEach((s) => {
           for (let k = 0; k < 2; k++) state.queue.push(makeSampleFile(s));
         });
         state.queue.push(makeSampleFile(null));

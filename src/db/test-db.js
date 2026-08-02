@@ -5,7 +5,7 @@
  */
 
 import * as db from './db.js';
-import { parseFileName, normalizeText, normalizeSubjectKey, tokenize } from './learner.js';
+import { parseFileName, normalizeText, normalizeSubjectKey } from './learner.js';
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -144,7 +144,7 @@ check('ファイル名が無意味でも本文で特定できる',
 
 /* -------------------------------------------------- ルール */
 section('rules');
-const rPD = db.rules.create({
+db.rules.create({
   subjectId: sPD, name: 'PD入門の課題', priority: 200, subfolder: '課題',
   conditions: [
     { target: 'filename', operator: 'contains', value: 'pd入門' },
