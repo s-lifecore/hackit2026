@@ -38,7 +38,7 @@ function createWatcher(onChange) {
   }
 
   function closeAll() {
-    for (const w of watchers) { try { w.close(); } catch (_) {} }
+    for (const w of watchers) { try { w.close(); } catch { /* ignore */ } }
     watchers = [];
   }
 

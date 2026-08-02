@@ -132,10 +132,9 @@ async function syncQueue(store) {
           current_path: full,
           size: st.size,
           detected_at: new Date().toISOString()
-     
+        });
         out.added++;
       } catch { /* 同時実行での重複挿入は無視してよい */ }
-
     }
   }
 

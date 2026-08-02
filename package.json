@@ -10,6 +10,8 @@
     "start": "electron .",
     "dist": "electron-builder --win",
     "dist:portable": "electron-builder --win portable",
+    "test": "node test/classifier.test.js && node test/scan.test.js && node test/subjects.test.js && node test/sync.test.js && node test/setup-cancel.test.js",
+    "lint": "eslint . --no-error-on-unmatched-pattern"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
