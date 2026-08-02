@@ -1439,6 +1439,21 @@ const fileScroll = document.getElementById('fileScroll');
 const flightLayer = document.getElementById('flightLayer');
 let FOLDERS = [];   // {id, name, folderPath, keyword, rule}
 
+/**
+ * このセッション（今回のUI起動）が始まった時点で、すでに振り分け済み(done)だった
+ * queueId の集合。ここに入っているものだけをファイル一覧から隠して履歴欄に任せる。
+ * ★ セッション中に新しく振り分けたファイルはここに入らないので、
+ *    フォルダ監視の同期（fs:changed）が来てもファイル一覧に「振り分け先」バッジ付きで
+ *    表示され続け、次回アプリを起動したときに初めて隠れる（履歴欄だけに残る）。
+ */
+let hiddenDoneIds = new Set();
+
+/** 今回の起動時点の「振り分け済み」一覧をスナップショットする。boot() 直後にだけ呼ぶこと。 */
+async function captureHiddenDoneIds(){
+  const all = await window.api.queue.list();
+  hiddenDoneIds = new Set(all.filter(it => it.status === 'done').map(it => String(it.id)));
+}
+
 function renderFolders(){
   folderList.innerHTML = '';
   FOLDERS.forEach((f, i) => {
@@ -1461,10 +1476,12 @@ function renderFolders(){
 async function renderFiles(opts){
   const includeDone = !!(opts && opts.includeDone);
   const all = await window.api.queue.list();
-  // 振り分け済みのファイルはもうダウンロードフォルダに無いので、一覧からは外す。
-  // 「何がどこへ行ったか」は左下の履歴欄で確認できる。
-  // （移動アニメーションを見せている最中だけ includeDone で残す）
-  const items = includeDone ? all : all.filter(it => it.status !== 'done');
+  // 振り分け済みのファイルは、今回のUI起動より前からすでに振り分け済みだったもの
+  // （＝hiddenDoneIdsに入っているもの）だけを一覧から外す。「何がどこへ行ったか」は
+  // 左下の履歴欄で確認できる。今回のセッション中に新しく振り分けたものは、
+  // フォルダ監視の同期が来ても一覧に残しておき、次回アプリを起動したときに履歴欄だけに移す。
+  // （移動アニメーションを見せている最中だけ includeDone で強制的に全件残す）
+  const items = includeDone ? all : all.filter(it => it.status !== 'done' || !hiddenDoneIds.has(String(it.id)));
 
   fileScroll.innerHTML = '';
   if(!items.length){
@@ -1632,6 +1649,7 @@ createBtn.onclick = async () => {
     await window.api.subjects.createMany(filledNames(), picked.path);
     await window.api.app.completeSetup();
 
+    await captureHiddenDoneIds();   // 今回の起動（このセットアップ）時点の状態を確定する
     await loadWorkspace();
     await refreshScanStatus();
 
@@ -1692,6 +1710,7 @@ async function boot(){
 
   if(state.setupCompleted || state.subjectCount > 0){
     setup.hidden = true;            // ← 2回目以降は即メイン画面
+    await captureHiddenDoneIds();   // 今回の起動時点で振り分け済みのものを確定する
     await loadWorkspace();
     await refreshScanStatus();
     if(!state.tutorialShown) openTutorial();   // アップデート後の既存ユーザー等、初回だけ表示
