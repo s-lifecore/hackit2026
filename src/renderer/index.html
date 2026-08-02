@@ -1095,9 +1095,9 @@ input{ font:inherit; color:inherit; }
 
     <!-- STEP 1：個数 -->
     <section class="step" id="step1">
-      <p class="eyebrow">はじめの設定 &nbsp;1 / 2</p>
-      <h2>フォルダをいくつ作りますか？</h2>
-      <p>授業の数だけ用意してください。名前は次の画面で入力します。</p>
+      <p class="eyebrow" id="step1Eyebrow">はじめの設定 &nbsp;1 / 2</p>
+      <h2 id="step1Title">フォルダをいくつ作りますか？</h2>
+      <p id="step1Lead">授業の数だけ用意してください。名前は次の画面で入力します。</p>
 
       <div class="stepper">
         <button class="stepper-button" id="minus" aria-label="1つ減らす">−</button>
@@ -1123,9 +1123,9 @@ input{ font:inherit; color:inherit; }
 
     <!-- STEP 2：名前 -->
     <section class="step" id="step2" hidden>
-      <p class="eyebrow">はじめの設定 &nbsp;2 / 2</p>
-      <h2>授業の名前を入力してください</h2>
-      <p>入力した名前が、そのままファイルの振り分けルールになります。</p>
+      <p class="eyebrow" id="step2Eyebrow">はじめの設定 &nbsp;2 / 2</p>
+      <h2 id="step2Title">授業の名前を入力してください</h2>
+      <p id="step2Lead">入力した名前が、そのままファイルの振り分けルールになります。</p>
 
       <ul class="name-list" id="nameList"></ul>
 
@@ -1164,10 +1164,10 @@ input{ font:inherit; color:inherit; }
         </svg>
         配置条件の変更
       </button>
-      <button class="icon-button" id="settingsBtn" aria-label="設定：フォルダを作り直す">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/>
+      <button class="icon-button" id="settingsBtn" aria-label="フォルダを追加する" title="フォルダを追加する">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H3z"/>
+          <path d="M12 12v5M9.5 14.5h5"/>
         </svg>
       </button>
     </span>
@@ -1630,6 +1630,7 @@ createBtn.onclick = async () => {
     //   あとからそのフォルダを消したときに中のファイルごと消える事故になっていた。
     if(!picked) return;
 
+    const wasAdd = setupMode === 'add';
     await window.api.subjects.createMany(filledNames(), picked.path);
     await window.api.app.completeSetup();
 
@@ -1640,11 +1641,15 @@ createBtn.onclick = async () => {
     setTimeout(async () => {
       setup.hidden = true;
       setup.classList.remove('is-leaving');
-      // セットアップ直後に1回だけ確認する（次回からはPC起動時に自動で走る）
+      cancelSetup.hidden = true;
+      applySetupMode('initial');
+      // フォルダを作った直後に1回だけ確認する（次回からはPC起動時に自動で走る）
       await window.api.scan.runNow();
-      // 初回セットアップの直後に、初回だけチュートリアルを見せる
-      await maybeShowTutorial();
+      // チュートリアルは初回だけ。あとからの追加では出さない
+      if(!wasAdd) await maybeShowTutorial();
     }, ms('--duration-base'));
+  } catch (e) {
+    alert('フォルダを作れませんでした: ' + e.message);
   } finally {
     createBtn.disabled = false;
   }
@@ -1652,7 +1657,32 @@ createBtn.onclick = async () => {
 
 /* 設定ボタン → 作り直し（メイン画面からの再オープンなのでキャンセルできるようにする） */
 const cancelSetup = document.getElementById('cancelSetup');
+/**
+ * セットアップ画面の使い方は2通りある。
+ *   'initial' … 初回。まだ科目が1つも無い
+ *   'add'     … あとから追加。既存の科目はそのまま残る
+ * 「追加なのに作り直しに見える」と誤解されないよう、文言を切り替える。
+ */
+let setupMode = 'initial';
+
+function applySetupMode(mode){
+  setupMode = mode;
+  const add = mode === 'add';
+  document.getElementById('step1Eyebrow').textContent = add ? 'フォルダの追加　1 / 2' : 'はじめの設定  1 / 2';
+  document.getElementById('step1Title').textContent   = add ? 'フォルダをいくつ追加しますか？' : 'フォルダをいくつ作りますか？';
+  document.getElementById('step1Lead').textContent    = add
+    ? '追加したい授業の数を選んでください。いまあるフォルダはそのまま残ります。'
+    : '授業の数だけ用意してください。名前は次の画面で入力します。';
+  document.getElementById('step2Eyebrow').textContent = add ? 'フォルダの追加　2 / 2' : 'はじめの設定  2 / 2';
+  document.getElementById('step2Title').textContent   = add ? '追加する授業の名前を入力してください' : '授業の名前を入力してください';
+  document.getElementById('step2Lead').textContent    = add
+    ? '入力した名前でフォルダを追加します。いまあるフォルダと学習した内容は消えません。'
+    : '入力した名前が、そのままファイルの振り分けルールになります。';
+  createBtn.textContent = add ? 'フォルダを追加する' : 'フォルダを作る';
+}
+
 document.getElementById('settingsBtn').onclick = () => {
+  applySetupMode('add');
   setup.hidden = false;
   step2.hidden = true;
   step1.hidden = false;
@@ -1661,6 +1691,7 @@ document.getElementById('settingsBtn').onclick = () => {
 cancelSetup.onclick = () => {
   setup.hidden = true;
   cancelSetup.hidden = true;
+  applySetupMode('initial');
 };
 
 /* ============================================================
@@ -1865,6 +1896,11 @@ function endDrag(){
 }
 fileScroll.addEventListener('pointerup', endDrag);
 fileScroll.addEventListener('pointercancel', endDrag);
+
+// ドラッグ中に見送った外部の変更を、操作が落ち着いてから取り込む
+// （アニメーションが終わるのを少し待つ）
+fileScroll.addEventListener('pointerup', () => setTimeout(flushPendingSync, 900));
+fileScroll.addEventListener('pointercancel', () => setTimeout(flushPendingSync, 900));
 
 /** ドラッグでの手動振り分け → window.api.queue.moveManually（＝学習にも回る） */
 async function sortOneManual(file, folderEl, subjectId){
@@ -2364,6 +2400,20 @@ window.api.on('file:failed', (payload) => {
 const syncBtn = document.getElementById('syncBtn');
 let lastSyncSig = null;
 let syncBusy = false;
+let syncPending = false;   // 操作中で反映を見送った変更があるか
+
+/**
+ * ドラッグなどが終わったあとに、見送っていた変更を取り込む。
+ * 見送りっぱなしだと、次の変化か20秒ごとの点検まで表示が古いままになる。
+ */
+async function flushPendingSync(){
+  if(!syncPending || syncBusy || isBusyInteracting()) return;
+  syncPending = false;
+  try{
+    const result = await window.api.sync.now();
+    await applySync(result);
+  }catch(e){ console.error('[sync]', e); }
+}
 
 /** いま画面を描き直すと操作の邪魔になる状況か */
 function isBusyInteracting(){
@@ -2391,9 +2441,17 @@ async function applySync(result, { force = false } = {}){
   const sig = syncSignature(result);
   const fileChanged = (result.addedFiles || 0) > 0 || (result.removedFiles || 0) > 0;
   if(!force && sig === lastSyncSig && !fileChanged) return;
-  lastSyncSig = sig;
 
-  if(!force && isBusyInteracting()) return;
+  // ドラッグ中・移動アニメーション中は描き直さない。
+  // ★ ここで lastSyncSig を更新してはいけない。更新すると「反映済み」と誤認され、
+  //   ドラッグが終わっても次の変化が起きるまで古い表示のままになる。
+  if(!force && isBusyInteracting()){
+    syncPending = true;
+    return;
+  }
+
+  lastSyncSig = sig;
+  syncPending = false;
 
   const subjectsChanged = (result.subjects || []).length !== FOLDERS.length
     || (result.subjects || []).some((s, i) => FOLDERS[i]?.id !== s.id || FOLDERS[i]?.name !== s.name);

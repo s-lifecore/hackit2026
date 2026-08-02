@@ -117,21 +117,27 @@ function register(ctx) {
     const byName = new Map(prev.map(s => [s.name, s]));
     let seq = store.get('subjectSeq', 0);
 
-    const rows = [];
+    // ★ 既存の科目は必ず残したまま追記する。
+    //   以前はここで一覧を丸ごと置き換えていたため、「フォルダを追加」しただけで
+    //   前からあった科目がアプリの一覧から消えていた。
+    //   （エクスプローラー上のフォルダは残るので、アプリからだけ見えなくなる）
+    const rows = prev.map(s => ({
+      id: s.id, name: s.name, folder_path: s.folder_path, keyword: s.keyword || ''
+    }));
+
+    const added = [];
     for (const name of list) {
       const old = byName.get(name);
-      const id = old ? old.id : `s${++seq}`;
+      if (old) { added.push(old); continue; }   // 同名はそのまま。作り直さない
       const folder = path.join(base, safeFolderName(name));
       await fsp.mkdir(folder, { recursive: true });
-      rows.push({ id, name, folder_path: folder, keyword: old ? old.keyword : '' });
+      const row = { id: `s${++seq}`, name, folder_path: folder, keyword: '' };
+      rows.push(row);
+      added.push(row);
     }
     store.set('subjectSeq', seq);
     store.set('baseFolder', base);
     store.replaceSubjects(rows);
-
-    // 消えた科目の学習データは掃除する
-    const keep = new Set(rows.map(r => r.id));
-    for (const s of prev) if (!keep.has(s.id)) store.clearTokensForSubject(s.id);
 
     // スキャン対象フォルダが未設定なら OS のダウンロードフォルダを既定にする
     if (!store.get('scanFolder', null)) {
@@ -139,7 +145,7 @@ function register(ctx) {
     }
     // 監視対象のフォルダが変わったので張り直す
     if (typeof ctx.refreshWatch === 'function') ctx.refreshWatch();
-    return rows.map(r => ({ id: r.id, name: r.name, folderPath: r.folder_path }));
+    return added.map(r => ({ id: r.id, name: r.name, folderPath: r.folder_path }));
   });
 
   /**
@@ -310,6 +316,19 @@ function register(ctx) {
   H('history:undoLast', async (n) => {
     const rows = store.recentHistory(Math.max(1, Number(n) || 1));
     let undone = 0;
+    // 取り消しは複数件をまとめて動かす。アプリ自身の移動なので、
+    // 途中で監視が反応して「移動済みだが記録はまだ」の状態を読まれないように止める。
+    if (ctx.watcher) ctx.watcher.pause();
+    try {
+      undone = await undoRows(rows);
+    } finally {
+      if (ctx.watcher) ctx.watcher.resume();
+    }
+    return { ok: true, undone };
+  });
+
+  async function undoRows(rows) {
+    let undone = 0;
     for (const h of rows) {
       try {
         let content = '';
@@ -325,8 +344,8 @@ function register(ctx) {
         emit('file:failed', { fileName: h.file_name, error: '戻せませんでした: ' + e.message });
       }
     }
-    return { ok: true, undone };
-  });
+    return undone;
+  }
 
   /* ---------------- scan ---------------- */
   H('scan:getStatus', () => ({
@@ -346,8 +365,14 @@ function register(ctx) {
     ctx.state.scanning = true;
     // 自分でファイルを動かしている間は監視の通知を止める（二重更新を防ぐ）
     if (ctx.watcher) ctx.watcher.pause();
-    try { return await runScan({ store, emit }, 'manual'); }
-    finally {
+    try {
+      return await runScan({ store, emit }, 'manual');
+    } catch (e) {
+      // 失敗しても必ず終了を知らせる。でないと画面が「確認しています…」で止まる
+      emit('scan:done', { scanned: 0, moved: 0, unmatched: 0, failed: 0, results: [], error: e.message });
+      throw e;
+    } finally {
+      ctx.state.lastScanAt = Date.now();
       ctx.state.scanning = false;
       if (ctx.watcher) ctx.watcher.resume();
     }
