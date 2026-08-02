@@ -13,6 +13,7 @@ const { buildModel, learn } = require('./classifier');
 
 /** Windows で使えない文字を落とす */
 function safeFolderName(name) {
+  // eslint-disable-next-line no-control-regex -- Windowsで使えない制御文字(\x00-\x1f)を意図的に対象にしている
   return String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').trim() || 'フォルダ';
 }
 
@@ -201,7 +202,7 @@ function register(ctx) {
     if (q.status === 'done') return { ok: true, subjectName: subject.name, alreadyDone: true };
 
     let content = '';
-    try { content = await getText(store, q.source_path); } catch (_) {}
+    try { content = await getText(store, q.source_path); } catch { /* ignore */ }
 
     // アプリ自身の移動なので、監視の通知でアニメーション中に再描画されないよう止める
     if (ctx.watcher) ctx.watcher.pause();
@@ -255,6 +256,34 @@ function register(ctx) {
     return { ok: true, trashed };
   });
 
+  /**
+   * デバッグ用：ファイル一覧（キュー）に出ているものをまとめて削除する。
+   * 振り分け待ち・振り分け済みを問わず対象にする。実ファイルは1件ずつごみ箱へ移動し、
+   * アプリ側の登録も削除する（1件の queue:removeFile を全件分まとめて行うイメージ）。
+   */
+  H('queue:clearAll', async () => {
+    const rows = store.listQueue();
+    if (ctx.watcher) ctx.watcher.pause();
+    let trashed = 0, failed = 0;
+    try {
+      for (const q of rows) {
+        const target = q.current_path || q.source_path;
+        try {
+          await fsp.access(target);
+          await shell.trashItem(target);
+          trashed++;
+        } catch (e) {
+          if (e && e.code !== 'ENOENT') failed++;
+          // ENOENT＝ファイルがそもそも無かった。アプリ側の登録だけ消せばよい。
+        }
+        store.deleteQueue(q.id);
+      }
+    } finally {
+      if (ctx.watcher) setTimeout(() => ctx.watcher.resume(), 600);
+    }
+    return { ok: true, removed: rows.length, trashed, failed };
+  });
+
   /* ---------------- history ---------------- */
   H('history:countBySubject', () => store.countBySubject());
 
@@ -284,7 +313,7 @@ function register(ctx) {
     for (const h of rows) {
       try {
         let content = '';
-        if (h.origin === 'manual') { try { content = await getText(store, h.to_path); } catch (_) {} }
+        if (h.origin === 'manual') { try { content = await getText(store, h.to_path); } catch { /* ignore */ } }
         await fsp.mkdir(path.dirname(h.from_path), { recursive: true });
         const back = await uniquePath(path.dirname(h.from_path), h.file_name);
         await moveFile(h.to_path, back);
