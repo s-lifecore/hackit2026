@@ -51,7 +51,7 @@ function createWindow(show) {
     minHeight: 600,
     show: false,
     backgroundColor: '#E8EBF2',
-    title: 'ファイフリ',
+    title: 'FileFly',
     icon: path.join(__dirname, '../../build/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
@@ -100,7 +100,7 @@ function createTray() {
   let img = nativeImage.createFromPath(iconPath);
   if (img.isEmpty()) img = nativeImage.createEmpty();
   tray = new Tray(img);
-  tray.setToolTip('ファイフリ');
+  tray.setToolTip('FileFly');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '画面を開く', click: showWindow },
     { label: '今すぐ確認する', click: () => triggerScan('manual') },
@@ -140,7 +140,7 @@ async function triggerScan(trigger) {
       const body = summary.unmatched
         ? `${summary.moved}件を振り分けました。${summary.unmatched}件は判断できなかったのでそのままです。`
         : `${summary.moved}件を振り分けました。`;
-      const n = new Notification({ title: 'ファイフリ', body });
+      const n = new Notification({ title: 'FileFly', body });
       n.on('click', showWindow);
       n.show();
     }

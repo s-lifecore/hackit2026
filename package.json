@@ -1,6 +1,6 @@
 {
   "name": "filefly",
-  "productName": "ファイフリ",
+  "productName": "FileFly",
   "version": "1.0.0",
   "description": "ダウンロードフォルダのファイルを授業フォルダへ自動で振り分けるデスクトップアプリ",
   "main": "src/main/main.js",
@@ -26,7 +26,7 @@
   },
   "build": {
     "appId": "jp.group1.filefly",
-    "productName": "ファイフリ",
+    "productName": "FileFly",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -64,13 +64,13 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ファイフリ",
+      "shortcutName": "FileFly",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico"
     },
     "portable": {
-      "artifactName": "ファイフリ-portable-${version}.exe"
+      "artifactName": "FileFly-portable-${version}.exe"
     }
   }
 }
