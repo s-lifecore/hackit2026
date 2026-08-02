@@ -35,7 +35,9 @@ const api = {
   queue: {
     list:         () => ipcRenderer.invoke('queue:list'),
     moveManually: (queueId, subjectId) => ipcRenderer.invoke('queue:moveManually', queueId, subjectId),
-    removeFile:   (queueId) => ipcRenderer.invoke('queue:removeFile', queueId)
+    removeFile:   (queueId) => ipcRenderer.invoke('queue:removeFile', queueId),
+    /** デバッグ用：一覧に出ているファイルをまとめてごみ箱へ移動する */
+    clearAll:     () => ipcRenderer.invoke('queue:clearAll')
   },
   history: {
     countBySubject: () => ipcRenderer.invoke('history:countBySubject'),

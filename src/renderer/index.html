@@ -1189,6 +1189,7 @@ input{ font:inherit; color:inherit; }
         <span style="display:flex; gap:var(--space-2); align-items:center;">
           <span class="rule-prefix" id="fileHint">ドラッグで手動振り分け</span>
           <button class="button button--quiet" id="resetBtn">元に戻す</button>
+          <button class="button button--quiet" id="clearAllBtn" title="デバッグ用：一覧のファイルをまとめてごみ箱へ移動します">全部削除</button>
         </span>
       </div>
       <div class="panel-body" id="fileScroll"></div>
@@ -2117,6 +2118,26 @@ document.getElementById('resetBtn').onclick = async () => {
   await window.api.history.undoLast(sortedCount);
   await renderFiles();
   updateHint();
+};
+
+/* ---------- デバッグ用：ファイル一覧を一括削除（ごみ箱へ） ---------- */
+document.getElementById('clearAllBtn').onclick = async () => {
+  const items = await window.api.queue.list();
+  if(!items.length) return;
+  const ok = confirm(`ファイル一覧の${items.length}件をすべて削除しますか？\n（振り分け待ち・振り分け済みを問わず、まとめてごみ箱へ移動します）`);
+  if(!ok) return;
+  const btn = document.getElementById('clearAllBtn');
+  btn.disabled = true;
+  try {
+    const r = await window.api.queue.clearAll();
+    await renderFiles();
+    updateHint();
+    if(r && r.failed) alert(`${r.failed}件は削除に失敗しました。`);
+  } catch (err) {
+    alert('削除に失敗しました: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
 };
 
 /* ============================================================
