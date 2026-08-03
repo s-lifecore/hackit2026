@@ -35,7 +35,7 @@
 - [@s-lifecore](https://github.com/s-lifecore)
 - [@atoji486](https://github.com/atoji486)
 - [@ikeda1457](https://github.com/ikeda1457)
-- [@araki](https://github.com/araki)
+- [@araki06](https://github.com/araki06)
 
 ---
 
